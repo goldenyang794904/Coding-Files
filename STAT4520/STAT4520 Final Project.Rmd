@@ -1,0 +1,494 @@
+---
+title: "Exploring Factors Influencing Insurance Pricing: A Comparative Analysis of Fixed and Random Effects"
+output: pdf_document
+author: Anton Yang
+date: "2024-12-04"
+fontsize: 12pt
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+Insurance is a financial product that provides protection against financial loss or risk. It is based on the principle of risk pooling, where individuals or entities pay regular premiums to an insurance company in exchange for coverage in case of unexpected events. These events could be accidents, illnesses, natural disasters, or property damage, depending on the type of insurance. Insurance distributes risk across a large number of policyholders, insurance companies are able to provide compensation to those who experience covered events while maintaining financial stability. 
+
+Specifically, health insurance focuses on providing financial assistance for medical expenses incurred by policyholders due to illness or injury. Health insurance plans cover a range of services, including hospital stays, doctor visits, prescription medications, preventive care, and surgeries. The premiums for health insurance are often determined by various factors such as age, gender, lifestyle habits (like smoking, jobs, hobbies, etc.), medical history, and the overall health of the individual. To assess the risk of insuring individuals use actuarial models and statistical techniques. 
+
+For this project, we'll use Medical Insurance Cost dataset from Kaggle [1]. This dataset contains about 2700 observations, and 7 variables (details shown in Table 1). The rarget variable, Charges, represents the total medical expenses for each policyholder, making it a valuable tool for modeling and prediction. We are interested in this data because we want to analyze the factors that influences the medical insurance charges, and this is crucial for actuarial work.
+
+This project aims to investigate whether incorporating random effects can enhance the predictive accuracy of models built on this dataset. By exploring group-level variability, random effects can capture unobserved heterogeneity within groups, such as regions or individual characteristics. Additionally, the project goals is to perform diagnostic on the models and compare it with ordinary linear model and generalized linear model. 
+
+The findings of this project will further our understanding the factors driving the medical expenses and for improving insurance pricing strategies. If random effects demonstrate an improvement in model performance, they may provide new insights into the variability of medical charges across different groups. In additional, identifying the appropriate fixed and random effects can enhance the company's ability to predict expenses more accurately. 
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE, fig.height = 5}
+library(ggplot2)
+library(lme4)
+library(dplyr)
+library(gt)
+library(tidyr)
+library(pbkrtest)
+library(RLRsim)
+
+set.seed(123)
+
+data<-read.csv("/Users/antonyang/Downloads/Past Courses Note/STAT4520/medical_insurance.csv")
+
+data <- data %>%
+  mutate(across(c(sex, smoker, children, region), as.factor))
+
+explanatory_variables<-data.frame(
+  Variables = c("age", "sex", "bmi", "children", "smoker", "region", "charges"),
+  Descriptions = c("Age of the person", "Gender of the person", "Body Mass Index", "Number of children", "Smoker or Non-smoker", "Region like northeast, northwest, southeast, southwest", "Yearly insurance price")
+)
+
+explanatory_variables%>%
+  gt()%>%
+  tab_header("Explanatory Variables")
+```
+\begin{center}
+  Table 1: Explanatory Variables Descriptions
+\end{center}
+
+# Data
+
+First, we'll analyze the characteristics of the data to identify any significant differences in insurance prices based on factors like gender, smoking status, and the number of children. Next, we will examine the correlation between insurance price and variables such as age and BMI. After exploring the dataset, we'll split it into training and test sets using the 80-20 rule, and begin developing the model.
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE, fig.height = 3.5}
+ggplot(data, aes(x = charges))+
+  geom_histogram(binwidth = 1000, fill = "skyblue", alpha = 0.7)+
+  labs(
+    title = "Distribution of Insurance Price",
+    x = "Insurance Price"
+  )+
+  theme_minimal()
+```
+\begin{center}
+  Figure 1: Distribution of Insurance Price
+\end{center}
+
+First, we examine the distribution of insurance prices. As shown in Figure 1, the distribution is right-skewed, which aligns with expectations. Most individuals are not charged high premiums unless they fall into the rated lives category. The majority of policyholders belong to either the preferred lives or standard lives groups, resulting in a concentration of lower insurance prices.
+
+Based on Figure 2, we observe that the number of children does not have a significant impact on insurance price. There is no strong evidence to suggest that the number of children influences the annual insurance premium. Similarly, region and sex appear to have little effect on the price. However, smoking status is a notable factor—smokers tend to have higher insurance premiums than non-smokers. This is clearly reflected in the box plot, where smokers consistently show higher insurance prices. Thus, we can conclude that certain factors, such as smoking status, do influence insurance prices. Now we want to check the distribution of each categorical variables.
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE, fig.height = 5}
+data_long <- data %>%
+  pivot_longer(
+    cols = -c(charges, age, bmi), 
+    names_to = "Variable",
+    values_to = "Value"
+  )
+
+ggplot(data_long, aes(x = Value, y = charges)) +
+  geom_boxplot(fill = 4) +  
+  facet_wrap(~ Variable, scales = "free_x") +  
+  labs(
+    title = "Boxplot of Categorical Variables",
+    x = "Value of Variable",
+    y = "Yearly Insurance Prices"
+  ) +
+  theme_minimal()
+```
+\begin{center}
+  Figure 2: Box Plots of Categorical Variables
+\end{center}
+
+According to Figure 3, the distribution of insurance prices between smokers and non-smokers is distinctly different. Non-smokers exhibit a lower insurance price, with a right-skewed distribution. In contrast, smokers show a bimodal distribution, with peaks around 20,000 dollars and 40,000 dollars. This indicates that the two groups have fundamentally different insurance price structures. Given these differences, it may be beneficial to consider incorporating smoker status as a random effect, as the variation in distributions suggests that separate modeling approaches for each group could improve prediction accuracy.
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE, fig.height = 5}
+ggplot(data, aes(x = charges)) +
+  geom_histogram(binwidth = 1000, alpha = 0.7, fill = "skyblue") +
+  facet_wrap(~ smoker, scales = "free_y") +  
+  labs(
+    title = "Distribution of Insurance Prices by Smoking Status",
+    x = "Insurance Price",
+    y = "Count"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 14),
+    strip.text = element_text(size = 12)  
+  )
+```
+\begin{center}
+  Figure 3: Distribution of Insurance Price for Smokers and Non-Smokers
+\end{center}
+
+We also aim to explore the distribution of insurance prices across different regions. We hypothesize that each region may exhibit varying insurance costs, with the Northeast, in particular, typically having higher premiums compared to other regions. This regional variation could provide valuable insights into how location influences insurance pricing.
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE, fig.height = 5}
+ggplot(data, aes(x = charges)) +
+  geom_histogram(binwidth = 1000, alpha = 0.7, fill = "skyblue") +
+  facet_wrap(~ region, scales = "free_y") +  
+  labs(
+    title = "Distribution of Insurance Prices by Regions",
+    x = "Insurance Price",
+    y = "Count"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 14),
+    strip.text = element_text(size = 12)  
+  )
+```
+\begin{center}
+  Figure 4: Distribution of Insurance Price for each Region
+\end{center}
+
+Based on Figure 4, we observe that the distribution of insurance prices across all regions is right-skewed. This suggests that the region variable is likely best treated as a fixed effect, as the patterns do not indicate the need for a random effect to capture significant regional variability.
+
+We believe that the number of children might show a different distribution, as intuitively, more children could lead to higher insurance prices and greater variability in costs due to increased risk. However, as shown in Figure 5, the distribution for all categories of children is right-skewed, similar to the pattern observed with region. Therefore, we are likely to treat the number of children as a fixed effect, as the distribution does not suggest a need for a random effect.
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE, fig.height = 5}
+ggplot(data, aes(x = charges)) +
+  geom_histogram(binwidth = 1000, alpha = 0.7, fill = "skyblue") +
+  facet_wrap(~ as.factor(children), scales = "free_y") +  
+  labs(
+    title = "Distribution of Insurance Prices by Number of Children",
+    x = "Insurance Price",
+    y = "Count"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 14),
+    strip.text = element_text(size = 12)  
+  )
+```
+\begin{center}
+  Figure 5: Distribution of Insurance Price by Number of Children
+\end{center}
+
+Finally, we examine the distribution of gender. As shown in Figure 6, both male and female distributions are right-skewed. This pattern further suggests that a random effect is unnecessary, and gender can be treated as a fixed effect in our model.
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE, fig.height = 5}
+ggplot(data, aes(x = charges)) +
+  geom_histogram(binwidth = 1000, alpha = 0.7, fill = "skyblue") +
+  facet_wrap(~ sex, scales = "free_y") +  
+  labs(
+    title = "Distribution of Insurance Prices by Gender",
+    x = "Insurance Price",
+    y = "Count"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 14),
+    strip.text = element_text(size = 12)  
+  )
+```
+\begin{center}
+  Figure 6: Distribution of Insurance Price by Gender
+\end{center}
+
+Next, we will explore the relationship between numeric variables and the insurance price. We anticipate a positive correlation between age and insurance price, as older individuals are considered higher risk due to an increased mortality rate. Additionally, we expect to observe a positive relationship between BMI and insurance price, since individuals with higher BMI may face greater health risks, leading to higher medical expenses.
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE, fig.height = 5}
+data_long2 <- data %>%
+  pivot_longer(
+    cols = c(age, bmi), 
+    names_to = "Variable",
+    values_to = "Value"
+  )
+
+ggplot(data_long2, aes(x = Value, y = charges, color = smoker)) +
+  geom_point(alpha = 0.3) +  
+  facet_wrap(~ Variable, scales = "free_x") +  
+  labs(
+    title = "Distribution of Insurance Prices by Numeric Variables with Smoker Status",
+    x = "Value of Variable",
+    y = "Insurance Prices"
+  ) +
+  theme_minimal()
+```
+\begin{center}
+  Figure 7: Scatter plot of Numeric Variables with Smoker Status
+\end{center}
+
+According to Figure 7, age shows a clear positive correlation with insurance price. The scatter plot reveals three distinct lines: the lowest line represents non-smokers, the middle line shows a mixture of smokers and non-smokers, and the highest line consists entirely of smokers. This provides stronger evidence for treating smoking status as a random effect. On the other hand, while BMI does not show a clear positive correlation with insurance prices, we do observe extreme outlier insurance prices as BMI increases.
+
+# Generalized Linear Model
+
+We will analyze three models: the ordinary linear model, the generalized linear model (Gamma), and the random effects model. Diagnostic tests will be performed on each model to identify the best-performing one. Finally, we will evaluate the predictive accuracy of each model to determine which provides the most reliable predictions.
+
+First, we want to build a full linear model. We transformed the target variable charges to reduce the effect of high insurance price. To improve the model, we performed stepwise selection (both directions since there are only 7 variables), and the variable sex is eliminated. According to Table 2, we can see that all variables are highly significant (lower than p-value of 0.05). We have a linear model:
+
+\[\hat{y} = \beta_0 + \beta_1 x_{age} + \beta_2 x_{bmi} + \beta_3 x_{children} + \beta_4 x_{smoker} + \beta_5 x_{northwest} + \beta_6 x_{southeast} + \beta_7 x_{southwest} +\epsilon\]
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE, fig.height = 5}
+set.seed(123)
+data$children<-as.numeric(data$children)
+training_indices<-sample(nrow(data), size = 0.8 * nrow(data), replace = FALSE)
+training_set<-data[training_indices,]
+test_set<-data[-training_indices,]
+
+model_fixed<-lm(charges ~., data = training_set)
+final_model_fixed<-step(model_fixed, trace = F, direction = "both")
+model_summary_fixed<-summary(final_model_fixed)
+
+p_values_df <- data.frame(
+  Variable = rownames(model_summary_fixed$coefficients),
+  Coefficient = model_summary_fixed$coefficients[, 1],
+  PValue = model_summary_fixed$coefficients[, 4]
+)
+
+p_values_df %>%
+  gt() %>%
+  tab_header("LM Coefficients (AIC = 44922.99)")
+
+```
+\begin{center}
+  Table 2: Ordinary Linear Model Summary
+\end{center}
+
+Based on Figure 8, the residuals display three distinct clusters, indicating that the linear model may struggle to accurately capture the dynamics of extremely low and high insurance prices. Furthermore, the Q-Q plot reveals significant deviations from normality, with many points falling outside the theoretical quantile line. These observations suggest that the ordinary linear model may not be the most effective for predicting insurance prices. To address this, we will explore a generalized linear model with a Gamma distribution, which is better suited for handling right-skewed data.
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE, fig.height = 3.5}
+par(mfrow = c(1, 2))  
+
+plot(final_model_fixed, which = 1)
+
+plot(final_model_fixed, which = 2)
+```
+\begin{center}
+  Figure 8: Ordinary Linear Model Diagnostic Plots
+\end{center}
+
+Next, we want to analyze generalized linear model with a Gamma distribution. The Gamma distribution has the form:
+
+\[f(y) = \frac{1}{\Gamma(v)}\left(\frac{v}{\mu}\right)^v e^{\frac{-yv}{\mu}}, \text{ with y>0}\] 
+
+Note, $v$ is the shape parameter, $E(Y) = \mu$ and $Var(Y) = \frac{\mu^2}{v}$. The canonical parameter for the Gamma distribution is $\theta = -\frac{1}{\mu}$. The canonical link is $\eta = -\frac{1}{\mu}$. 
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE, fig.height = 3.5}
+glm_model<-glm(charges~., data = training_set, family = Gamma)
+final_glm_model<-step(glm_model, trace = F, direction = "both")
+glm_model_summary<-summary(final_glm_model)
+
+p_values_df_glm <- data.frame(
+  Variable = rownames(glm_model_summary$coefficients),
+  Coefficient = glm_model_summary$coefficients[, 1],
+  PValue = glm_model_summary$coefficients[, 4]
+)
+
+p_values_df_glm %>%
+  gt() %>%
+  tab_header("GLM Coefficients (AIC = 44501.21)")
+
+```
+\begin{center}
+  Table 4: Generalized Linear Model with Gamma Distribution Summary
+\end{center}
+
+According to Table 4, all variables in the GLM model are statistically significant. Additionally, the GLM model exhibits a lower AIC compared to the ordinary linear model, indicating a potentially better predictive performance. Furthermore, as shown in Figure 9, the residual plot shows a similar behavior as the ordinary linear model. Additionally, we can see that residuals are still not normal according to the Q-Q plot.  
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE, fig.height = 3.5}
+par(mfrow = c(1, 2))  
+
+plot(final_glm_model, which = 1)
+
+plot(final_glm_model, which = 2)
+```
+\begin{center}
+  Figure 9: GLM Diagnostic Plots
+\end{center}
+
+# Random Effect Model
+
+A random effect is a factor with levels that are random selections from a broader population of possible levels, which means we assume a distribution for the factor. We can see that the variable smoker status clearly have a distinct distribution.
+
+\[y_{ijk} = \mu + \tau_i + v_j + \epsilon_{ijk}\]
+
+where $\mu$ is the intercept (fixed), $\tau_i$ is the effect of $i$-th level of factor A (fixed), and $v_j \sim N(0, \sigma_v^2)$ is the effect of $j$-th level of factor B. $\sigma_v^2$ and $\sigma^2$ are call the variance components.
+
+We initially considered smoker as the random effect with a fixed slope. After constructing the model, we used Kenward-Roger method to test the fixed effect. We use Kenward-Roger method as the F-test with the adjusted degrees of freedom. We found out that all the variables are significant except for the variable sex. We can see that in Table 5, the p-value is greater than 0.05, which means that we fail to reject the null hypothesis that larger model is not significant. 
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE, fig.height = 3.5}
+set.seed(123)
+
+model_random1<-lmer(charges ~. -sex + (1|smoker), data = training_set)
+
+model_random1_summary<-summary(model_random1)
+```
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE, fig.height = 3.5}
+
+full_model<-lmer(charges~. + (1|smoker), data = training_set)
+full_model_summary<-summary(full_model)
+model1<-lmer(charges ~ smoker + children + age +bmi + region + (1|smoker), data = training_set)
+model2<-lmer(charges ~ children + smoker + age + bmi + region + sex + (1|smoker), data = training_set)
+Kenward<-KRmodcomp(model1, model2)
+
+kenward_tables<-data.frame(Kenward)[1,]
+
+kenward_tables %>%
+  gt() %>%
+  tab_header("Kenward-Roger Approximation")
+```
+\begin{center}
+  Table 5: Kenward-Roger Approximation for Fixed Effects
+\end{center}
+
+Based on Table 6, we found that all the variables are significant, so we'll include all the variables as a fixed effect. In addition, $\sigma^2 = 6062.30$ and $\sigma_{\alpha}^2 = 13528.04$, indicating a substantial amount of variation. According to the table, we can see as the age increase, it increases the age by about 258.178, which means there is a positive correlation between age and the insurance price.
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE, fig.height = 3.5}
+random_effects<-VarCorr(model_random1)
+
+random_effects_df<-data.frame(
+  Group = c("smoker", "Residuals"),
+  Std_Dev = c(attr(random_effects$smoker, "stddev"), attr(random_effects, "sc"))
+)
+
+fixed_effects_df <- data.frame(
+  Variable = rownames(model_random1_summary$coefficients),
+  Coefficient = model_random1_summary$coefficients[, 1]
+)  
+random_effects_df %>%
+  gt() %>%
+  tab_header("Random Effects (AIC = 44923.01)")
+
+fixed_effects_df %>%
+  gt() %>%
+  tab_header("Fixed Effects")
+
+```
+\begin{center}
+  Table 6: Mixed Effect Model 1 Summary
+\end{center}
+
+Based on our analysis of the explanatory variables, we identified that the smoker variable has a significant effect on insurance prices. This observation led us to hypothesize that incorporating both a random slope and intercept for the smoker variable could improve the model. Specifically, we allowed the smoker status to influence the slope of all variables and the intercept. As shown in Table 7, the standard deviations for the random effects across all variables are notably high with $\sigma^2 = 4820.513091$, indicating substantial variability associated with the smoker groups. Additionally, we can see that the coefficient for the smoker is typically higher than non-smoker, which means that if the policyholder is a smoker, the model will predict a higher insurance price. The model's AIC is lower than that of Mixed Effect Model 1, suggesting that this more complex random effects structure provides a better fit to the data. By including the random effects across all variables also have a lower residuals than Mixed Effect Model 1.
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE, fig.height = 3.5}
+set.seed(123)
+model_random2<-lmer(charges ~. -sex + (sex + children + region + age + bmi|smoker), data = training_set)
+
+model_random2_summary<-summary(model_random2)
+
+random_effects2<-VarCorr(model_random2)
+
+random_effects_df2<-data.frame(
+  Group = c("smoker", "", "", "", "", "", "", "", "Residuals"),
+  Name = c("Intercept", "sexmale", "children", "regionnorthwest", "regionsoutheast", "regionsouthwest", "age", "bmi", ""),
+  Std_Dev = c(attr(random_effects2$smoker, "stddev"), attr(random_effects2, "sc"))
+)
+
+fixed_effects_df2 <- data.frame(
+  Variable = rownames(model_random2_summary$coefficients),
+  Coefficient = model_random2_summary$coefficients[, 1]
+)  
+random_effects_df2 %>%
+  gt() %>%
+  tab_header("Random Effects (AIC = 44008.78)")
+
+fixed_effects_df %>%
+  gt() %>%
+  tab_header("Fixed Effects")
+```
+\begin{center}
+  Table 7: Mixed Effect Model 2 Summary
+\end{center}
+
+According to Table 8, smoker status significantly impacts both the slope and intercept of the model, highlighting its critical role in predicting insurance prices. Specifically, for policyholders who smoke, the insurance cost increases by approximately 3525.38 for each additional year of age. In contrast, for non-smokers, the insurance price decreases by about 2483.26 with each additional year of age. 
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE, fig.height = 3.5}
+smoker_coef <- t(coef(model_random2)$smoker[2,]) 
+non_smoker_coef <- t(coef(model_random2)$smoker[1,])
+
+model_random2_coef<-data.frame(
+  Parameters = rownames(full_model_summary$coefficients),
+  Smoker = smoker_coef,
+  "Non-smoker" = non_smoker_coef
+)
+
+model_random2_coef %>%
+  gt() %>%
+  tab_header("Mixed Effect Model 2 Coefficient by Smoker Status")
+```
+\begin{center}
+  Table 8: Smoker Status Coefficients
+\end{center}
+
+According to Figure 10, the residuals plot shows a significant improvement compared to both the ordinary linear model and the generalized linear model. The plot reveals a single cluster around the lower fitted values, while the remaining residuals are more evenly scattered. This indicates that the mixed-effect model is better at capturing high insurance prices, suggesting that it has a better predictive ability in comparison to the other models. The reduced clustering of residuals further supports the idea that this model provides a more accurate and reliable prediction for insurance costs.
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE, fig.height = 3.5}
+plot(model_random2, xlab = "Fitted", ylab = "Residuals", main = "Residuals vs. Fitted")
+```
+\begin{center}
+  Figure 10: Mixed Effect Model 2 Diagnostic Plot
+\end{center}
+
+According to Table 9, the p-value is approximately 0, which is significantly less than the 0.05 threshold. This indicates that we reject the null hypothesis, which posits that the larger model is not significantly better. Therefore, we conclude that Mixed Effect Model 2 outperforms Mixed Effect Model 1. Additionally, the lower AIC value for the Random Effect Model, compared to the ordinary linear model, further supports the inclusion of random effects as a meaningful improvement to the model. This demonstrates that accounting for variability due to smoker status significantly enhances the model's predictive ability.
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE, fig.height = 3.5}
+anova_table<-anova(model_random1, model_random2)
+
+anova_table_df<-data.frame(
+  Model = c("model_random1", "model_random2"),
+  npar = c(anova_table$npar),
+  AIC = c(anova_table$AIC),
+  Deviance = c(anova_table$deviance),
+  Chisq = c(anova_table$Chisq),
+  P_value = c(anova_table$`Pr(>Chisq)`)
+)
+
+anova_table_df %>%
+  gt() %>%
+  tab_header("Anova Table")
+```
+\begin{center}
+  Table 9: Anova Table for Comparing Mixed Effect Model 1 and 2
+\end{center}
+
+# Results
+
+To evaluate the predictive performance of the three models: linear regression, Gamma GLM, and mixed effect model. We will calculate the Mean Absolute Error (MAE) for each. MAE is a useful metric as it gives the average of the absolute differences between predicted and actual values, providing a clear indication of the model's accuracy. By comparing the MAE across these models, we can identify which one provides the most accurate predictions for insurance prices, helping us determine the best approach for forecasting. After analyzing the model, we concludes that the Mixed Effect Model 2 performs the best with the lowest AIC. Now, we want to check the predictive ability of these models.
+
+\[MAE = \frac{1}{n} \sum_{i=1}^n |y_i - \hat{y_i}|\]
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE, fig.height = 3.5}
+prediction1 <- predict(final_model_fixed, newdata = test_set)
+prediction2 <- predict(final_glm_model, newdata = test_set, type = "response")
+prediction3 <- predict(model_random2, newdata = test_set)
+
+mae1<-mean(abs(test_set$charges - prediction1))
+mae2<-mean(abs(test_set$charges - prediction2))
+mae3<-mean(abs(test_set$charges - prediction3))
+
+mae_table<-data.frame(
+  Models = c("Ordinary Linear Model", "Generalized Linear Model with Gamma Distribution", "Mixed Effect Model with Smoker as Random Effect"),
+  "Mean Absolute Error" = c(mae1, mae2, mae3)
+)
+
+mae_table %>%
+  gt() %>%
+  tab_header("Mean Absolute Error of each Model")
+```
+\begin{center}
+  Table 10: Comparison of Mean Abosolute Error of each Model
+\end{center}
+
+According to Table 10, the Mixed Effect Model outperforms the other models with a significantly lower MAE of 2911.796, compared to 4190.462 for the linear model and 5088.020 for the GLM. This indicates that the Mixed Effect Model has the best predictive accuracy, highlighting the crucial role of smoker status in determining insurance prices. The linear model and GLM struggle to accurately capture the variability in insurance prices, particularly at the higher end, where smoker status has a substantial impact. This suggests that incorporating smoker status as a random effect improves the model's ability to predict insurance costs.
+
+# Conclusions
+
+Determining the premium price is essential for insurance companies to balance their payouts to policyholders while maintaining financial stability. The models proposed in this project offer valuable insights that can help the company accurately predict the appropriate yearly premium to charge each policyholder. By incorporating factors such as smoker status and other key variables, these models enable more informed decisions, ensuring that premium pricing aligns with the risk profile of each policyholder and supports the company's long-term sustainability.
+
+In this analysis, we aimed to develop models to predict insurance prices based on various factors like age, BMI, smoking status, and region. The models tested included a standard linear model, a generalized linear model (Gamma), and a mixed-effect model with smoker status as a random effect. By evaluating these models, we sought to identify the most accurate predictor of insurance costs, given that smoker status is likely a significant factor influencing prices.
+
+After comparing the models, we found that the mixed-effect model performed the best, with a significantly lower mean absolute error (MAE) than both the linear and GLM models. The key factor contributing to the mixed-effect model’s success is the inclusion of smoker status as a random effect. This accounts for the variation in insurance prices between smokers and non-smokers, which the other models struggle to capture. The random effect of smoker status helps the model better fit the data, especially in cases of higher medical costs associated with smoking.
+
+In conclusion, the mixed-effect model is the best option for predicting insurance prices, as it effectively captures the impact of smoker status on pricing. By treating smoker status as a random effect, the model improves its predictive accuracy and provides more reliable results. This analysis shows that incorporating random effects can significantly enhance the model's ability to handle complex data, leading to better predictions in scenarios like insurance pricing.
+
+# References
+
+[1] Teertha. (n.d.). US Health Insurance Dataset. Kaggle. Retrieved December 5, 2024, from https://www.kaggle.com/datasets/teertha/ushealthinsurancedataset
+
+
+
+
+
+
+

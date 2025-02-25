@@ -1,0 +1,502 @@
+---
+title: "Predicting NBA Scores: An Analysis of Player Performance Metrics"
+author: Anton Yang
+output: pdf_document
+date: "2024-10-22"
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Abstract
+
+In this project, we analyze NBA player performance metrics from the 2023 season to predict total points scored using Poisson and quasi-Poisson regression models. The dataset includes 20 predictor variables, such as player position, shooting percentages, rebounds, and turnovers. Exploratory data analysis revealed that factors like player position and turnovers significantly impact scoring. A Poisson model was initially developed, but overdispersion issues led to the use of a quasi-Poisson model. The final model highlights key predictors, including player position and turnovers, while addressing the challenges of overdispersion, providing insights into factors that influence scoring outcomes in the NBA.
+
+## Introduction
+
+The National Basketball Association (NBA) is a professional basketball
+league comprised of 30 teams across North America featuring the best
+basketball players in the world. NBA was founded on Augst 3, 1949, with
+the merger of the Basketball Association of America (BAA) and the
+national Basketball League (NBL). Since then, the NBA has grown into a
+global sports phenomenon, captivating millions of fans with its
+fast-paced games, high scoring, and star players. Every games is a
+competition between team such as team strategies, player performance,
+defense, nad offensive capabilities come together to influend the final
+score.
+
+One area of interest for analysts, coaches, and fans is what factors
+drive the total points scored in a game. Scoring in the NBA is
+influenced by numerous variables including player efficiency, player's
+position, shooting accuracy, and defense. Understanding these variables
+can help in game predictions and performance analysis. Predicting
+basketball points for each player is one of the most important for
+basketball analytics. It serves as a crucial performance metric that
+allows coaches ,analysts, and fans to assess a player's scoring ability
+and overall offensive contribution to the team. Understanding players'
+scoring potential aids in strategic decision-making during games, player
+selection, and talent scouting.
+
+This project is interested in analyzing the factors of player's
+performance (total points),and the goal is to analyze the NBA dataset
+and perform predictive analytics on the dataset. To approach this, we
+perform explanatory data analysis and employ Poisson Regression Model to
+predict the total points scored. Poisson Regression is particularly good
+for count data, where the dependent variable represents the number of
+occurrences of an event in a fixed period. The Poisson distribution is
+commonly used to model such events.
+
+## Data
+
+We utilized the NBA Players Stats (2023 Season) dataset from Kaggle,
+which comprises 20 predictor variables and 1 target variable. This
+dataset was specifically curated to provide performance metrics for
+analysis. To enhance clarity and reduce redundancy, several variables
+from the original dataset were removed. For instance, the original
+dataset included both free throw attempts and free throw success; these
+were consolidated into a single variable representing free throw success
+percentage. Our objective is to leverage this dataset to develop an
+informed predictive model, facilitating deeper insights into player
+performance.
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(faraway)
+library(corrplot)
+library(knitr)
+library(broom)
+library(plotly)
+
+data<-read.csv("2023_nba_player_stats.csv")
+
+cleaned_data<-data%>%
+  mutate(WP = W/GP, MinP = Min/GP, OREBP = OREB/GP, DREBP = DREB/GP, ASTP = AST/GP, TOVP = TOV/GP, STLP = STL/GP, BLKP = BLK/GP, PFP = PF/GP)%>%
+  select(PName, POS, Team, Age, GP, WP, MinP, FGP, X3PP, FTP, OREBP, DREBP, ASTP, TOVP, STLP, BLKP, PFP, DD2, TD3, FP, Score.Difference, PTS)
+
+cleaned_data <- cleaned_data[cleaned_data$POS != "N/A", ]
+
+
+explanatory_variables <- data.frame(
+  Variables = c("PName", "POS", "Team", "Age", "GP", "WP", "MinP", "FGP", "X3PP", "FTP", "OREBP", "DREBP", "ASTP", "TOVP", "STLP", "BLKP", "PFP", "DD2", "TD3", "FP", "Score.Difference", "PTS"),
+  Description = c("The name of the basketball player", "The player's position in the game", "The abbreviation of the team the player is currently playing for this season", "The age of the player", "The percentage of Wins", "The total number of games the player has played in this season", "The average minutes the player has played in this season per game", "The percentage of successful field goals made by the player", "The percentage of successful 3-point field goals made by the player", "The percentage of successful free throws made by the player", "The total number of offensive rebounds made by the player", "The total number of defensive rebounds made by the player", "The average number of assists made by the player per game", "The average number of turnovers made by the player per game", "The average number of steals made by the player per game", "The average number of blocks made by the player per game", "The average number of personal fouls made by the player per game", "The total number of double-doubles made by the player", "The total number of triple-doubles made by the player", "The total number of NBA fantasy points made by the player","The total difference between the player's team scoring and the opponents' scoring while the player is in the game", "The total points made by the player")
+)
+
+kable(explanatory_variables, caption = "Explanatory Variable Description")
+
+```
+
+```{=tex}
+\begin{center}
+  Figure 1: Historgram of Total Points
+\end{center}
+```
+```{r, echo = FALSE, message = FALSE, fig.height = 4, fig.width = 8}
+ggplot(cleaned_data, aes(x = PTS))+
+  geom_histogram(binwidth = 100, fill = "orange")
+```
+
+As illustrated in Figure 1, the distribution of total points is
+right-skewed, with the majority of players scoring below 1,000 points.
+Notably, approximately 100 players scored fewer than 100 total points.
+Given this distribution, we will utilize Poisson Regression to predict
+total points based on player performance.
+
+To begin, we aim to investigate whether player position has any impact
+on total points scored. To achieve this, we will employ a boxplot to
+visually assess the differences in total points across various
+positions.
+
+```{=tex}
+\begin{center}
+  Figure 2: Boxplot of Points Scored by Player Position
+\end{center}
+```
+```{r, echo = FALSE, message = FALSE, fig.height = 4, fig.width = 8}
+ggplot(data = cleaned_data, aes(x = POS, y = PTS, fill = POS))+
+  geom_boxplot()+
+  theme_minimal()
+```
+
+As shown in Figure 2, there are significant differences in point scores
+among the various positions. For instance, the positions of Power
+Forward (PF), Point Guard (PG), Small Forward (SF), and Shooting Guard
+(SG) have significantly higher point totals compared to the positions of
+Guard (G) and Forward (F). This indicates that the variable POS is a
+significant predictor in the Poisson model.
+
+Next, we will examine the distribution of players' ages to determine
+whether age has an impact on player performance.
+
+```{=tex}
+\begin{center}
+  Figure 3: Distribution of Player's Age
+\end{center}
+```
+```{r, echo = FALSE, message = FALSE, warning = FALSE, fig.height = 4, fig.width = 8}
+ggplot(data = cleaned_data, aes(x = Age))+
+  geom_histogram(binwidth = 1, fill = "orange", color = "black")+
+  theme_minimal()
+```
+
+Based on Figure 3, we can also see that the age is skewed to the right
+as majority of the player are between the age of 20 and 30.
+
+```{=tex}
+\begin{center}
+  Figure 4: Average Points Scored by Age
+\end{center}
+```
+```{r, echo = FALSE, message = FALSE, warning = FALSE, fig.height = 3, fig.width = 8}
+average_points<-cleaned_data%>%
+  group_by(Age)%>%
+  summarise(Average_PTS = mean(PTS, na.rm = TRUE))
+
+ggplot(data = average_points, aes(x = Age, y = Average_PTS)) +
+  geom_line(color = "orange", size = 1) +  # Line color and size
+  geom_point(color = "orange", size = 2) +  # Points on the line
+  labs(x = "Age",
+       y = "Average Points Scored") +
+  theme_minimal()
+```
+
+As shown in Figure 4, the average points scored by players aged 20 to 30
+remain relatively stable. In contrast, players aged 30 and older exhibit
+more atypical average scores. This variability may be attributed to the
+limited data available for this age group, which could explain the more
+pronounced fluctuations in average points as players age.
+
+Correlation is a statistical measure that describes both the strength
+and direction of the relationship between two quantitative variables.
+Therefore, we will exclude the categorical variables PName, POS, and
+Team from our analysis. The correlation coefficient ranges from -1 to
++1, where -1 indicates a strong negative correlation, and +1 indicates a
+strong positive correlation.
+
+```{=tex}
+\newpage
+\begin{center}
+  Figure 5: Correlation Plot
+\end{center}
+```
+```{r, echo = FALSE, fig.width = 10, fig.height = 10}
+correlation<-cor(cleaned_data[4:22])
+corrplot(correlation, method = "number", type = "lower")
+```
+
+As shown in Figure 5, most variables display only modest correlations
+with one another. However, two pairs of variables warrant attention: FP
+(Fantasy Points) and MinP (Minutes Played), which have a high
+correlation of 0.86, and ASTP (Assists Points) and TOVP (Turnovers per
+Game), with a correlation of 0.84. These values exceed the threshold of
+0.8, indicating potential collinearity that must be addressed during
+model building. Furthermore, all variables demonstrate positive
+correlations with the target variable PTS (Total Points Scored),
+suggesting that we can expect the model coefficients to be predominantly
+positive. However, the high correlation of FP and MinP with PTS also
+raises concerns about potential collinearity, which could impact the
+reliability of our model's estimates.
+
+## Model
+
+For this data, we will be using Poisson model. We have a count
+responses: $$Y_i \sim Pois(\mu_i)$$ The predictors $\boldsymbol{x}_i$
+and by using a log link function:
+$$\log\mu_i = \eta_i = \boldsymbol{x}_i^T\beta \implies \mu_i = e^{\eta_i} = e^{\boldsymbol{x}_i^T\beta}$$
+The log-likelihood is
+$$\ell(\beta) = \sum_{i=1}^{n}(y_i\boldsymbol{x}_i^T\beta - e^{\boldsymbol{x}_i^T\beta}-\log(y_i!))$$
+Differentiating $\beta_j$ give the Maximum Likelihood Estimate as the
+solution to:
+$$\sum_{i=1}^{n}(y_i - e^{\boldsymbol{x}_i^T\hat{\beta}})x_{ij} = 0, \forall{j}$$
+
+For the Poisson model, the exponential family is
+$$f(y|\theta, \phi) = \frac{e^{-\mu}\mu^y}{y!} = e^{y\log\mu - \mu - \log(y!)}$$
+with $\theta = \log\mu$, which means log link. $\phi = 1$ means that it
+is a standard Poisson model, and if it's quasi-Poisson, then $\phi$ will
+change. Lastly,
+$a(\phi) = 1, b(\theta) = e^{\theta}, c(y,\phi) = -\log(y!)$. Since the
+standard Poisson model mean and variance are the same,
+$\mu = V(\mu) = e^{\theta}$.
+
+```{r, echo = FALSE}
+set.seed(123)
+training_indices<-sample(1:nrow(cleaned_data), size = round(0.8*nrow(cleaned_data)), replace = FALSE)
+
+training_set<-cleaned_data[training_indices,]
+training_set <- training_set[ , !(names(training_set) %in% c("PName", "Team"))]
+test_set<-cleaned_data[-training_indices,]
+test_set <- test_set[ , !(names(test_set) %in% c("PName", "Team"))]
+```
+
+```{=tex}
+\begin{center}
+  Figure 6: Poisson Regression Model Summary
+\end{center}
+```
+```{r, echo = FALSE, message = FALSE}
+modelp<-glm(PTS ~., data = training_set, family = poisson)
+sumary(modelp)
+```
+
+Before constructing the predictive model, we divided the dataset into a
+training set and a test set, using an 80-20 split. The training set will
+be employed for model development, while the test set will serve as a
+benchmark to evaluate the model's performance. As illustrated in Figure
+5, most variables are significant to the model, except for POSF
+(Forward), POSG (Guard), and POSPF (Power Forward). The model has an AIC
+(Akaike Information Criterion) of 15093.21, leading us to question
+whether the model would perform better without the POS variable.
+According to Figure 6, removing the POS variable increases the
+significance of STLP (Steals per Game). However, the AIC rises to
+15580.73 when the POS variable is excluded, prompting us to retain it in
+the model.
+
+```{=tex}
+\begin{center}
+  Figure 7: Poisson Regression Model without Position Summary
+\end{center}
+```
+```{r, echo = FALSE, message = FALSE}
+modelp2<-glm(PTS ~. -POS, data = training_set, family = poisson)
+sumary(modelp2)
+```
+
+According to Figure 7, removing the POS predictor results in a higher
+deviance for the model, indicating a deterioration in fit. This suggests
+that including the POS variable is crucial for enhancing the model's
+performance. Therefore, it is advisable to retain the POS predictor in
+the final model to ensure optimal predictive accuracy.
+
+```{=tex}
+\begin{center}
+  Figure 8: Stepwise Poisson Regression Model Summary and Confidence Interval
+\end{center}
+```
+```{r echo = FALSE, message = FALSE}
+final_model<-step(modelp, trace = F)
+sumary(final_model)
+confint(final_model)
+```
+
+As shown in Figure 8, the stepwise selection process retained all the
+variables in the model. Consequently, our final model will include all
+predictors. The intercept is estimated at $2.57$, indicating that when
+the position is at its baseline level and all numeric predictors are set
+to zero, the mean outcome is $2.57$. Among the predictors, POSPG (point
+guard position) demonstrates the most significant impact on the model.
+This suggests that players in the point guard position are likely to
+have a higher mean score. Specifically, when a player occupies the point
+guard position, the mean increases by a factor of $e^{0.21082}$.
+Additionally, the predictor TOVP (turnovers per game) also has a
+substantial influence on the model. An increase in TOVP corresponds to a
+rise in the mean by a factor of $e^{0.23905}$. These findings highlight
+the importance of player position and turnovers in predicting
+performance outcomes.
+
+Next, we want to check the goodness of fit of the model. We will use
+Goodness of Fit with $H_0:$ proposed model fits well and $H_a:$ proposed
+model do not fit well. We will use G-statistics method for the deviance:
+$$D = 2\sum_{i=1}^{n}(y_i\log(y_i/\hat{\mu_i}) - (y_i - \hat{\mu_i}))$$
+By comparing the deviance aganst $\chi^2$ distribution with degree of
+freedom, we get the value 0, which means the standard Poisson model
+doesn't provide a good fit. Now, we want to check the residuals to see
+ifthe large deviance can be explained by an outlier.
+
+```{=tex}
+\begin{center}
+  Figure 9: Residuals vs. Fitted Plot
+\end{center}
+```
+```{r, echo = FALSE, message = FALSE, fig.height = 4, fig.width = 8}
+plot(final_model, 1)
+```
+
+By Figure 9, we can see that the residuals tend to spread as the
+predicted value gets larger. This suggests that the Poisson model is
+overdispersed with variance larger than the mean. Before we check the
+overdiserpersion, we want to check the residuals to see if the large
+deviance can be explained by an outlier.
+
+```{=tex}
+\begin{center}
+  Figure 10: Half-Norm Plot
+\end{center}
+```
+```{r, echo = FALSE, message = FALSE, fig.height = 4, fig.width = 8}
+halfnorm(residuals(modelp))
+```
+
+We can see that there are one outlier in Figure 10, but it is not
+significant enough to suggest that it causes the large deviance.
+
+```{=tex}
+\begin{center}
+  Figure 11: Mean and Variance Plot
+\end{center}
+```
+```{r, echo = FALSE, message = FALSE, fig.height = 4, fig.width = 8}
+plot(log(fitted(modelp)), log((training_set$PTS - fitted(modelp))^2),
+     xlab = expression(hat(mu)), ylab = expression((y-hat(mu))^2))
+abline(0,1)
+```
+
+As illustrated in Figure 11, the variance is greater than the mean,
+indicating that the quasi-Poisson model is more suitable for fitting the
+data. This model accounts for the dispersion parameter, making it an
+appropriate choice for our analysis.
+
+```{=tex}
+\begin{center}
+  Figure 12: quasi-Poisson Model Summary
+\end{center}
+```
+```{r, echo = FALSE, message = FALSE}
+quasimodelp<-glm(PTS ~., family = quasipoisson, data = training_set)
+sumary(quasimodelp)
+```
+
+According to Figure 12, quasi-Poisson model's coefficients are
+different, and many variables are no longer significant.
+
+The quasi-Poisson model has the same exponential family as the standard
+Poisson model except $\phi \neq 1$. IN this case $\phi = 26.79811$.
+
+The dispersion parameter is estimated using:
+$$\hat{\phi} = \frac{\chi^2}{n-p}$$
+
+```{r echo = FALSE, message = FALSE, include = FALSE}
+drop1(quasimodelp, test = "F")
+modquasi<-glm(PTS ~.-BLKP, family = quasipoisson, data = training_set)
+drop1(modquasi, test = "F")
+modquasi<-glm(PTS ~.-BLKP -TD3, family = quasipoisson, data = training_set)
+drop1(modquasi, test = "F")
+modquasi<-glm(PTS ~. -BLKP -TD3 -OREBP, family = quasipoisson, data = training_set)
+drop1(modquasi, test = "F")
+modquasi<-glm(PTS ~. -BLKP -TD3 -OREBP -Age, family = quasipoisson, data = training_set)
+drop1(modquasi, test = "F")
+
+```
+
+We used the F-test (using the drop1 function) to identify which
+variables were not statistically significant. As a result, we decided to
+remove the predictors BLKP, TD3, OREBP, and Age from our model. This
+refinement significantly improved the model, resulting in most of the
+remaining variables being significant or close to significant.
+
+```{=tex}
+\begin{center}
+  Figure 13: Final quasi-Poisson Model Summary and the Confidence Interval
+\end{center}
+```
+```{r echo = FALSE, message = FALSE}
+finalquasi_model<-glm(PTS ~. -BLKP -TD3 -OREBP -Age, family = quasipoisson, data = training_set)
+sumary(finalquasi_model)
+confint(finalquasi_model)
+```
+
+Thus, we have arrived at our final model, as illustrated in Figure 13.
+The dispersion parameter has been adjusted to $\phi = 26.63487$,
+reflecting the model's ability to account for overdispersion. Next, we
+performed a diagnostic check on the final quasi-Poisson model, revealing
+that its diagnostic results are relatively similar to those of the
+standard Poisson model. Despite this similarity, the quasi-Poisson model
+is better equipped to handle the increased variance in the data. As
+shown in the summary, the intercept has less impact compared to the
+standard Poisson model, with a coefficient of $2.5160$. This indicates
+that if the position (POS) is at the baseline level and all numeric
+variables are set to zero, the mean outcome is $2.5160$. Furthermore,
+POSPG (point guard) remains the most influential position affecting
+total scores, while TOVP (turnovers per game) continues to have the
+highest coefficient among the variables.
+
+Next, we want to perform predictions using both the standard Poisson
+model and the quasi-Poisson model to evaluate which one provides better
+predictive performance. By comparing the models, we can determine which
+yields more accurate predictions and assess the overall efficiency of
+each approach. This analysis will allow us to identify the most suitable
+model for predicting total scores, especially considering the potential
+presence of overdispersion in the data.
+
+```{r echo = FALSE, message = FALSE}
+predicted_scores1<-round(predict(final_model, test_set, type = "response"))
+poisson_deviance1 <- sum(2 * (test_set$PTS * log(test_set$PTS / predicted_scores1) - (test_set$PTS - predicted_scores1)))
+
+predicted_scores2<-round(predict(finalquasi_model, test_set, type = "response"))
+poisson_deviance2 <- sum(2 * (test_set$PTS * log(test_set$PTS / predicted_scores2) - (test_set$PTS - predicted_scores2)))
+```
+
+```{r echo = FALSE}
+prediction_table <- data.frame(
+  Models = c("Standard Poisson Model", "quasi-Poisson Model"),
+  Deviance = c(3100.003, 3047.401)
+)
+
+kable(prediction_table, caption = "Models Prediction Result")
+```
+
+The results indicate that the standard Poisson model has a deviance of
+3100.003, while the quasi-Poisson model achieves a lower deviance of
+3047.401. This reduction in deviance suggests that the quasi-Poisson
+model provides a better fit to the data, making it more effective at
+predicting the player's total score. By accounting for overdispersion,
+the quasi-Poisson model captures the variability in the data more
+accurately, leading to improved prediction efficiency.
+
+We use the Poisson Deviance formula to access the prediction power:
+$$D=\sum2y_i\log\left(\frac{y_i}{\hat{\mu_i}}\right)+2(y_i-\hat{\mu_i})$$
+
+The best model for predicting total scores is the quasi-Poisson model,
+as it accounts for the overdispersion in the data. Based on the
+diagnostic plot, it's evident that the variance in total scores
+increases as the scores themselves increase, highlighting the need for a
+model that can handle this variability effectively. The quasi-Poisson
+model adjusts for this by allowing the variance to be greater than the
+mean, offering a more robust fit for predicting total scores in the
+presence of overdispersion.
+
+## Conclusion
+
+In conclusion, this study enhances our understanding of the performance
+metrics needed to predict a player's total score. It enables us to
+visualize various aspects of player performance, such as age, position,
+and the correlations among different variables. Notably, we identified
+that the total number of fantasy points has a strong correlation with
+total scores, along with average playing time.
+
+By applying Poisson regression to our dataset, we discovered that the
+quasi-Poisson model outperforms the standard Poisson model in terms of
+predictive accuracy. This finding underscores the effectiveness of the
+quasi-Poisson model for our analysis, as it provides superior prediction
+results.
+
+However, one area for improvement in this study is the method of
+selecting variables for the quasi-Poisson model. We observed that the
+quasi-Poisson model indicated more non-significant variables than the
+standard Poisson model. Given that the quasi-Poisson model lacks AIC or
+BIC metrics, we are unable to perform stepwise selection. Another area
+for improvement is to improve the predictive ability of the model for
+the player with extremely low points and extremely high points. The
+model do not perform well to the player with very high tota scores and
+very low total scores. Additionally, exploring alternative regression
+techniques, such as Random Forest and Support Vector Machines, could
+yield better prediction results.
+
+The Poisson model is well-suited for count datasets, making it
+applicable to any scenario where the response variable consists of whole
+numbers. This model can be utilized to predict the number of insurance
+claims, NFL total scores, and total wins.
+
+Ultimately, this study provides valuable insights into how performance
+metrics influence a player's total score, highlighting the potential of
+the Poisson model in predictive analytics within sports and beyond.
+
+## References
+
+Mirzaie, A. H. (2023). NBA players stats (2023 season) [Data set].
+Kaggle.
+<https://www.kaggle.com/datasets/amirhosseinmirzaie/nba-players-stats2023-season>

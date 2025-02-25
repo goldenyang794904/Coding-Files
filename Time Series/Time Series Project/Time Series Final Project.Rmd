@@ -1,0 +1,263 @@
+---
+title: "Wind Power Generation Forecasting Model"
+author: Anton Yang
+output: pdf_document
+date: "2024-11-26"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+\begin{center}
+  \section*{Abstract}
+\end{center}
+
+
+Many industry experts, researchers, and data scientists are exploring renewable energy, with a particular focus on wind power. The goal is to understand the dynamic relationship between meteorological variables and their impact on wind power generation. This study considers time series models, including the Seasonal Autoregressive Model, to analyze these relationships. Since many variables may or may not contribute to the model's construction, our objective is to identify the optimal model and evaluate whether additional variables improve the prediction of future observations. This approach is supported by examining autocorrelation and partial autocorrelation graphs and validating the model by minimizing mean squared errors. 
+
+# Introduction
+
+Rising oil costs emphasize the need for sustainable energy solutions, with wind power standing out as one of the most promising renewable energy technologies due to its high efficiency and minimal environmental impact. Wind power is a clean and renewable energy source that harnesses the wind’s energy using turbines. These turbines convert mechanical power into electricity without burning fuel or polluting the air. As an abundant and inexhaustible resource, wind energy helps reduce carbon emissions significantly, avoiding approximately 336 million metric tons of carbon dioxide annually in the United States—equivalent to the emissions from 73 million cars [1]. The forecast of wind vitality assumes a vital part in the portion of balance control. 
+
+However, wind energy production is inherently variable, influenced by complex meteorological factors such as temperature, humidity, wind speed, wind direction, and gusts. The increasing reliance on renewable energy highlights the importance of optimizing wind power generation through predictive modeling. By understanding how meteorological conditions impact wind energy output, we can enhance forecasting accuracy and operational efficiency.
+
+For this project, we will analyze the Wind Power Generation Dataset from Kaggle. This dataset contains 4 location site, and for this project, we'll analyze location 1. This dataset was created to explore the dynamic relationship between meteorological variables and their effect on wind power generation. It is a comprehensive compilation of field-based meteorological observations and wind turbine output data, offering valuable insights into the interplay between weather conditions and renewable energy production. The dataset spans detailed hourly records starting from January 2, 2017. To facilitate easier analysis and observe broader trends, the hourly data will be aggregated into weekly averages across all variables. This transformation will enable a more meaningful exploration of the patterns and factors influencing wind power generation. The goal of this project is to develop an optimal forecasting model and identify the key variables that contribute to its predictive accuracy. By understanding the factors that significantly influence wind power generation, we aim to enhance the model's forecasting capability and provide actionable insights for improving energy efficiency and planning.
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+library(astsa)
+library(dplyr)
+library(gt)
+library(lubridate)
+library(ggplot2)
+library(tidyr)
+
+data<-read.csv("/Users/antonyang/Downloads/Past Courses Note/Time Series/Time Series Project/Location1.csv")
+
+training_weekly_data <- data %>%
+  filter(year(Time) == c(2017, 2018, 2019, 2020)) %>%
+  mutate(Date = floor_date(as.Date(Time), "week")) %>%  
+  group_by(Date) %>%
+  summarize(
+    across(-c(Time), mean, na.rm = TRUE)          
+  )
+
+test_weekly_data<-data %>%
+  filter(year(Time) == 2021) %>%
+  mutate(Date = floor_date(as.Date(Time), "week")) %>%  
+  group_by(Date) %>%
+  summarize(
+    across(-c(Time), mean, na.rm = TRUE)          
+  ) %>%
+  slice(-1)
+
+explanatory_variables<-data.frame(
+  Variables = c("Date", "temperature_2m", "relativehumidity_2m", "dewpoint_2m", "windspeed_10m", "windspeed_100m", "winddirection_10m", "winddirection_100m", "windgusts_10m", "Power"),
+  Descriptions = c("Weekly date when readings occured.", "Temperature in degrees Farenheit at 2 meters above the surface.", "Relative humidity (as a percentage) at 2 meters above the surface.", "Dew point in degrees Farenheit at 2 meters above the surface.", "Wind speed in meters per second at 10 meters above the surface.", "Wind speed in meters per second at 100 meters above the surface", "Wind direction in degrees (0-360) at 10 meters above the surface", "Wind direction in degrees (0-360) at 100 meters above the surface.", "Wind gusts in meters per second at 100 meters above the surface.", "Turbine output, normalized to be between 0 and 1.")
+)
+
+explanatory_variables %>%
+  gt() %>%
+  tab_header(title = "Explanatory Variables")
+
+```
+
+# Methods
+
+We will consider constructing a SARIMA model (Seasonal Autoregressive Integrated Moving Average) to analyze the data. To do this, we first examine the weekly average power generation from the beginning of 2017 to the end of 2020. The dataset is divided into a training set, consisting of observations from 2017 to 2020, and a test set containing observations from 2021. The training set will be used to fit the model, while the test set will validate its performance.
+
+From Figure 2, the Weekly Power Generation chart reveals a clear seasonal pattern, with the highest power generation occurring at the beginning of the year and the lowest in the middle of the year. This suggests that the wind turbine produces the most power during the winter and the least during the summer. Additionally, the Weekly Power Generation data is not homogeneous (non-stationary), prompting us to take the first difference to stabilize the data. After differencing, the data appears more homogeneous and stationary, which will streamline the model-building process.
+
+Further exploration of the seasonal moving average highlights a wave-like pattern, emphasizing the need to incorporate seasonal components in our SARIMA model. These insights will guide the development of a robust and efficient model for forecasting power generation. 
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+data_long <- training_weekly_data %>%
+  pivot_longer(cols = -c(Date, Power), names_to = "Variable", values_to = "Value")
+
+ggplot(data_long, aes(x = Value, y = Power)) +
+  geom_point(alpha = 0.6, color = 4) +  # Add scatter points
+  facet_wrap(~ Variable, scales = "free_x") +  # Create a separate plot for each variable
+  labs(
+    x = "Value of Variable",
+    y = "Power"
+  ) +
+  theme_minimal()
+```
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+tsdata<-ts(training_weekly_data$Power, start = c(2017, 2), frequency = 52)
+tsplot(tsdata, col = 4, main = "Weekly Power Generation", ylab = "Power")
+tsplot(diff(tsdata), col = 4, main = "First Difference Weekly Power Generation", ylab = "Power")
+k = kernel("modified.daniell", 10)
+tsplot(kernapply(tsdata, k), col=4, main="Seasonal Moving Average")
+
+```
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+orig_acf2<-acf2(tsdata)
+diff_acf2<-acf2(diff(training_weekly_data$Power))
+
+```
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+model1<-sarima(tsdata, p=0, d=1, q=1, P=0, D=0, Q=0, S=52, no.constant = TRUE)
+
+#Clearly Model 2 is better
+model2<-sarima(tsdata, p=0, d=1, q=1, P=0, D=0, Q=0, S=52, xreg = cbind(training_weekly_data$windspeed_100m, training_weekly_data$dewpoint_2m), no.constant = TRUE)
+
+model3<-sarima(tsdata, p=0, d=1, q=1, P=0, D=1, Q=1, S=52, no.constant = TRUE)
+
+```
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+prd1 <- training_weekly_data$Power - resid(model1$fit)  
+prde1 <- sqrt(model1$fit$sigma2) 
+
+prd_ts1 <- ts(prd1, start = start(ts(training_weekly_data$Power)), frequency = frequency(ts(training_weekly_data$Power)))
+
+tsplot(prd_ts1, 
+       lwd = 2, 
+       col = rgb(0, 0, 0.9, 0.5), 
+       ylim = c(0, 1), 
+       ylab = "Power",
+       main = "Predicted vs Observed Power")
+
+points(time(prd_ts1), 
+       training_weekly_data$Power, 
+       pch = 16, 
+       col = rgb(0.8, 0.3, 0))
+
+x <- time(prd_ts1)  
+xx <- c(x, rev(x))
+yy <- c(prd1 - 2 * prde1, rev(prd1 + 2 * prde1))
+
+polygon(xx, yy, 
+        border = NA, 
+        col = rgb(0.4, 0.5, 0.6, 0.15))  
+
+legend("topright", 
+       legend = c("Predicted", "Observed"), 
+       lty = c(1, NA), 
+       lwd = c(2, NA), 
+       pch = c(NA, 16), 
+       col = c(rgb(0, 0, 0.9, 0.5), rgb(0.8, 0.3, 0)), 
+       cex = 0.9, 
+       bty = "n")
+```
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+prd2 <- training_weekly_data$Power - resid(model2$fit)  
+prde2 <- sqrt(model2$fit$sigma2) 
+
+prd_ts2 <- ts(prd2, start = start(ts(training_weekly_data$Power)), frequency = frequency(ts(training_weekly_data$Power)))
+
+tsplot(prd_ts2, 
+       lwd = 2, 
+       col = rgb(0, 0, 0.9, 0.5), 
+       ylim = c(0, 1), 
+       ylab = "Power",
+       main = "Predicted vs Observed Power")
+
+points(time(prd_ts2), 
+       training_weekly_data$Power, 
+       pch = 16, 
+       col = rgb(0.8, 0.3, 0))
+
+x <- time(prd_ts2)  
+xx <- c(x, rev(x))
+yy <- c(prd2 - 2 * prde2, rev(prd2 + 2 * prde2))
+
+polygon(xx, yy, 
+        border = NA, 
+        col = rgb(0.4, 0.5, 0.6, 0.15))  
+
+legend("topright", 
+       legend = c("Predicted", "Observed"), 
+       lty = c(1, NA), 
+       lwd = c(2, NA), 
+       pch = c(NA, 16), 
+       col = c(rgb(0, 0, 0.9, 0.5), rgb(0.8, 0.3, 0)), 
+       cex = 0.9, 
+       bty = "n")
+```
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+prd3 <- training_weekly_data$Power - resid(model3$fit)
+prde3 <- sqrt(model3$fit$sigma2) 
+
+prd_ts3 <- ts(prd3, start = start(ts(training_weekly_data$Date)), frequency = frequency(ts(training_weekly_data$Power)))
+
+tsplot(prd_ts3, 
+       lwd = 2, 
+       col = rgb(0, 0, 0.9, 0.5), 
+       ylim = c(0, 1), 
+       ylab = "Power",
+       main = "Predicted vs Observed Power")
+
+points(time(prd_ts3), 
+       training_weekly_data$Power, 
+       pch = 16, 
+       col = rgb(0.8, 0.3, 0))
+
+x <- time(prd_ts3)  
+xx <- c(x, rev(x))
+yy <- c(prd3 - 2 * prde3, rev(prd3 + 2 * prde3))
+
+polygon(xx, yy, 
+        border = NA, 
+        col = rgb(0.4, 0.5, 0.6, 0.15))  
+
+legend("topright", 
+       legend = c("Predicted", "Observed"), 
+       lty = c(1, NA), 
+       lwd = c(2, NA), 
+       pch = c(NA, 16), 
+       col = c(rgb(0, 0, 0.9, 0.5), rgb(0.8, 0.3, 0)), 
+       cex = 0.9, 
+       bty = "n")
+```
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+prediction1<-sarima.for(tsdata, 52, p=0, d=1, q=1, P=0, D=0, Q=0, S=52, plot.all = TRUE, no.constant = TRUE)
+
+prediction2<-sarima.for(tsdata, 52, p=0, d=1, q=1, P=0, D=0, Q=0, S=52, xreg = cbind(training_weekly_data$windspeed_100m, training_weekly_data$dewpoint_2m), newxreg = cbind(test_weekly_data$windspeed_100m, test_weekly_data$dewpoint_2m), plot.all = TRUE, no.constant = TRUE)
+
+prediction3<-sarima.for(tsdata, 52, p=0, d=1, q=1, P=0, D=1, Q=1, S=52, plot.all = TRUE, no.constant = TRUE)
+
+```
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+mvspec(tsdata, main = "", col = 4, lty = 5, type = "o", pch = 20)
+
+```
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+mse1 <- mean((test_weekly_data$Power -prediction1$pred)^2)
+
+mse2 <- mean((test_weekly_data$Power - prediction2$pred)^2)
+
+mse3 <- mean((test_weekly_data$Power - prediction3$pred)^2)
+
+mse_table <- data.frame(
+  Model = c("ARMA(0, 1, 1)x(0, 0, 0)_52 with no regression", "ARMA(0, 1, 1)x(0, 0, 0)_52 with regression", "ARMA(0, 1, 1)x(0, 1, 1)_52 with no regression"),
+  MSE = c(mse1, mse2, mse3)
+)
+
+mse_table %>%
+  gt() %>%
+  tab_header(title = "Mean Squared Error of Models") %>%
+  tab_caption(caption = "Table 1: Comparison of MSE across different ARMA models.") %>%
+  fmt_number(columns = vars(MSE), decimals = 4)
+
+```
+
+# Reference
+
+https://www.energy.gov/eere/wind/advantages-and-challenges-wind-energy#:~:text=Wind%20power%20is%20a%20clean,a%20generator%20and%20create%20electricity.
+
+https://www.kaggle.com/datasets/mubashirrahim/wind-power-generation-data-forecasting/data
+
+
+
+
+

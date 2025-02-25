@@ -1,0 +1,289 @@
+---
+title: "STAT4520 HW2"
+author: Anton Yang
+output: pdf_document
+date: "2024-09-14"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Problem 1 - Binary Response
+
+```{r}
+set.seed(123)
+library(MASS)
+library(faraway)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+data(kyphosis, package = "rpart")
+```
+
+```{r}
+plot(kyphosis$Kyphosis,kyphosis$Age, main = "Relationship between Kyphosis and Age",
+xlab = "", ylab = "Age")
+
+```
+
+We can see that there is a clear difference in median age between the state of Kyphosis. We can see that Kyphosis typically is present with older children. We can also see that that the quartile is wider for absent Kyphosis and 75% of the children has Kyphosis is around the age of 70 - 80 months. 
+
+```{r}
+plot(kyphosis$Kyphosis,kyphosis$Number, main = "Relationship between Kyphosis and Number", 
+xlab = "", ylab = "Number")
+```
+
+We can see that that there's a clear difference between the median of the number of vertebrae with absent and present Kyphosis. We can see that the width of quartile is around the same and there's a clear difference between the lower quartile and the upper quartile with absent and present Kyphosis.
+
+```{r}
+plot(kyphosis$Kyphosis,kyphosis$Start, main = "Relationship between Kyphosis and Start", 
+xlab = "", ylab = "Start")
+```
+
+We can see that there's a huge difference between the median of the number of the first (topmost) vertebra operated on with absent and present Kyphosis. We can see that see that with absent Kyphosis, the median Start 13-14, and with present, the median Start is around 6-7.
+
+```{r}
+kyphosis$Kyphosis<-ifelse(kyphosis$Kyphosis == "absent", 0, 1)
+
+ggplot(kyphosis, aes(x=Age, y= Kyphosis))+ 
+  geom_point()+ 
+  geom_jitter(width = 0.1, height = 0.1)
+
+ggplot(kyphosis, aes(x=Number, y= Kyphosis))+
+  geom_point()+ 
+  geom_jitter(width = 0.1, height = 0.1)
+
+ggplot(kyphosis, aes(x=Start, y= Kyphosis))+ 
+  geom_point()+ 
+  geom_jitter(width = 0.1, height = 0.1)
+```
+Based on these three scatterplots, the age predictor seems to indicate higher ages increases likelihood. However, it doesn't look strongly correlated while the number seems to indicate higher numbers increases likelihood. The Start predictor seems to indicate lower numbers increases likelihood.
+
+```{r}
+model1<-glm(Kyphosis ~ Age + Number + Start, data = kyphosis, family = "binomial")
+summary(model1)
+```
+
+
+Now we want to check with the F-test. Since there are not many variables in the data, we can check all the possibility of a reduced model. Therefore, we'll check all the reduced model with the F-test.
+
+```{r}
+reduced_model1<-glm(Kyphosis ~ Start, data = kyphosis, family = "binomial")
+
+reduced_model2<-glm(Kyphosis ~ Age, data = kyphosis, family = "binomial")
+
+reduced_model3<-glm(Kyphosis ~ Number, data = kyphosis, family = "binomial")
+
+reduced_model4<-glm(Kyphosis ~ Age + Number, data = kyphosis, family = "binomial")
+
+reduced_model5<-glm(Kyphosis ~ Age + Start, data = kyphosis, family = "binomial")
+
+reduced_model6<-glm(Kyphosis ~ Number + Start, data = kyphosis, family = "binomial")
+
+anova(reduced_model1, model1, test = "Chi")
+anova(reduced_model2, model1, test = "Chi")
+anova(reduced_model3, model1, test = "Chi")
+anova(reduced_model4, model1, test = "Chi")
+anova(reduced_model5, model1, test = "Chi")
+anova(reduced_model6, model1, test = "Chi")
+```
+
+Our Null Hypothesis $H_0:$ the smaller model is correct and our Alternative Hypothesis $H_1:$ at least one variable is related to response. After looking through all the F-test, we can see that the p-value is higher than 0.05 for the reduced model with variables Number and Start, so we'll fail to reject the Null Hypothesis, which means the reduced model is correct. Therefore, based on F-Test, the model with variables Number and Start is the best model. 
+
+$log(\frac{p_{present}}{1-p_{present}}) = \beta_0 + \beta_2x_{Number} + \beta_3x_{Start}$
+
+```{r}
+beta <- coef(reduced_model6)
+exp(beta)
+```
+
+From the model, the odds of Kyphosis increases by 42.96819% with each additional number of vertebae involved, and decreases by 16.688535% for each addition number of the first (topmost) vertebra operated on.
+
+```{r}
+confint(reduced_model6)
+```
+
+```{r}
+backward_model<-step(model1, direction = "backward", trace = FALSE)
+summary(backward_model)
+```
+
+We can see that according to the backward selection model, it is the same as the original model.
+
+$log(\frac{p_{present}}{1-p_{present}}) = \beta_0 + \beta_1x_{Age} + \beta_2x_{Number} + \beta_3x_{Start}$
+
+```{r}
+halfnorm(hatvalues(model1))
+filter(kyphosis, hatvalues(model1) > 0.145) %>% select(Age, Number, Start, Kyphosis)
+```
+The leverage is a measure of how far away an observation's independent variable values are from the other observations. We can see that there are the two children age 131 and 139 months. For the child age 131 months has a very low number of Start, and child age 139 months has a very high Number and low Start. However, these two points do not seem particularly extreme, so we are not so concerned about these two observations. 
+
+```{r}
+kyphosis2<-mutate(kyphosis, residuals = residuals(model1), linpred = predict(model1))
+gdf<-group_by(kyphosis2, Start)
+diagdf<-summarise(gdf, residuals = mean(residuals))
+ggplot(diagdf, aes(x = Start, y = residuals))+
+  geom_point()
+```
+
+We can see that the residuals is pretty random. Although we can see that the Start value between 5 and 10 has a really high residual. We can see that at Start value equal 8, the residuals is around 1.2. However, it's not huge enough to be a concern. 
+
+```{r}
+linPred <- predict(model1)
+kDataM <- mutate(kyphosis, predProb = predict(model1, type = "response"))
+gDf <- group_by(kDataM, cut(linPred, breaks = unique(quantile(linPred, (0:12)/12))))
+
+hlDf <- summarise(gDf, y= sum(Kyphosis), pPred=mean(predProb), count = n())
+
+hlDf <- mutate(hlDf, se.fit=sqrt(pPred * (1-(pPred)/count)))
+
+
+ggplot(hlDf,aes(x=pPred,y=y/count,ymin=y/count-2*se.fit,ymax=y/count+2*se.fit)) +
+     geom_point()+geom_linerange(color=grey(0.75))+geom_abline(intercept=0,slope=1) +
+     xlab("Predicted Probability") +
+     ylab("Observed Proportion")
+```
+
+The plot shows 95% confidence intervals and our line fits through all of them, so this is a sign that it is a good fit. 
+```{r}
+linpred <- predict(model1)
+data <- mutate(kyphosis, predProb = predict(model1, type = "response"))
+gDf <- group_by(data, cut(linpred, breaks = unique(quantile(linpred, (0:12)/12))))
+
+hldf <- summarise(gDf, 
+                  y = sum(Kyphosis),       
+                  ppred = mean(predProb),   
+                  count = n()) 
+
+hldf<-mutate(hldf, se.fit = sqrt(ppred*(1-(ppred))/count))
+
+hlStat<- with(hldf, sum( ( y- count* ppred)^2/(count*ppred*(1-ppred))))
+
+hlStat
+
+1-pchisq(hlStat, nrow(hldf)-1)
+```
+ 
+Our Null Hypothesis $H_0:$ the data is poor fit for logistic regression and our Alternative Hypothesis $H_1:$ the data is not a poor fit for logistic regression. Therefore, we can see that this data produces a p-value of 0.6257973, and this indicates that there's no lack of fit. 
+
+```{r}
+data<-mutate(data, Predicted = ifelse(predProb < 0.5, 0, 1))
+table(predicted = data$Predicted, data$Kyphosis)
+```
+
+Overall, the model is around 84% accurate. We can see that this model is poor in predicting children with Kyphosis as we see that it got more than half of it wrong. It did well for predicting absent Kyphosis with a misclassification rate of 0.046875, but for the present Kyphosis, it has a misclassification rate of 0.588235. We can see that from the data, the model tend to predict 1 when Start is low. We can see that when Start is like 10 or 17, it predicts 0, but when Start is 6, it predicts 1. This means that it is sensitive to the variable Start, as this heavily influence the prediction of the model. We can see that variables age and number doesn't seem to have an apparent sign that affect the model's prediction. The sensitivity metric is about 41% and specificity metric is about 95%.
+
+## Problem 2 - Binomial Responses
+
+```{r}
+data(turtle, package = "faraway")
+
+turtle$prop_male<-ifelse(turtle$female == 0, 1, (turtle$male)/(turtle$male + turtle$female))
+
+```
+
+```{r}
+ggplot(turtle, aes(x = temp, y = prop_male))+
+  geom_point()+
+  labs(title = "Temperature vs Proportion of Male")+
+  theme_minimal()
+
+```
+
+We can see that there's a clear relationship where as the temperature increases, the proportion of male turtle increases.
+
+```{r}
+model1<-glm(cbind(male, female) ~ temp, data = turtle, family = "binomial"(link = "logit"))
+summary(model1)
+```
+
+```{r}
+x<-seq(27, 30.2, 0.1)
+plot(turtle$temp, turtle$prop_male)
+lines(x, ilogit(-61.3183 + 2.2110*x))
+
+deviance(model1)
+
+df.residual(model1)
+
+pchisq(deviance(model1), df.residual(model1), lower = FALSE)
+```
+We fit the model with male_prop as target variable and temp as the predictor. We use logit as the link function. 
+
+$log(\frac{p_{male}}{1-p_{male}}) = \beta_0 + \beta_1x_{temp}$
+
+In addition, we can see that the p-value is less than 0.05, so we can conclude that this model does not fit sufficiently well. 
+
+The data is space, where there are only 15 observations, and there is essentially one predictor (male_prob). According to the plot, there are no strong outliers. We can clearly see that there is a fit according to the plot, but it could be improved. 
+
+```{r}
+model2<-glm(cbind(male, female) ~ temp + I(temp^2), data = turtle, family = "binomial"(link = "logit"))
+summary(model2)
+
+plot(turtle$temp, turtle$prop_male)
+lines(x, ilogit(-677.595 + (45.9173 * x) - (0.7745 * x^2)), col = "red", lwd = 2)
+
+deviance(model2)
+
+df.residual(model2)
+
+pchisq(deviance(model2), df.residual(model2), lower = FALSE)
+```
+
+Now, we have the quadratic model, which we add additional term of temp squared.
+
+$log(\frac{p_{male}}{1-p_{male}}) = \beta_0 + \beta_1x_{temp} + \beta_2x_{temp}^2$
+
+We can see that the deviance for this model is better with p-value of 0.06239194. Since the p-value is greater than 0.05, we can conclude that it fits well. We can also see that the temp^2 predictor has a 0.0199 p-value, so it is a significant predictor. 
+```{r}
+model3<-glm(cbind(male, female) ~ temp + I(temp^2), data = turtle, family = "binomial"(link = "inverse"))
+summary(model3)
+
+deviance(model3)
+
+df.residual(model3)
+
+pchisq(deviance(model3), df.residual(model3), lower = FALSE)
+```
+
+Now, we'll build a model with the link function of inverse.
+$\frac{1}{p_{male}} = \beta_0 + \beta_1x_{temp} + \beta_2x_{temp}^2$
+
+We can see that this model is significantly worse that the link function logit. With the p-value significantly lower the 0.05, it indicates that the model does not fit well.
+
+```{r}
+temp_seq<-c(27.2, 27.2, 27.2, 27.7, 27.7, 27.7, 28.3, 28.3, 28.3, 28.4, 28.4, 28.4, 29.9, 29.9, 29.9)
+predval<-sapply(list(model1, model2, model3), function(m) predict(m, data.frame(temp = temp_seq), type = "response"))
+
+colnames(predval)<-c("logit", "logit (quadratic)", "inverse (quadratic)")
+
+predval<-data.frame(temp_seq, predval)
+
+mpv<-gather(data = predval, key = link, value = probability, -temp_seq)
+
+ggplot() +
+  geom_line(data = mpv, aes(x = temp_seq, y = probability, linetype = link, color = link)) +
+  labs(x = "Temperature", y = "Probability", title = "Mean Prediction Curve") +
+  geom_point(data = turtle, aes(x = temp, y = prop_male), color = "black")+
+  theme_minimal()
+```
+We can see that logit and logit (quadratic) is pretty similar except that logic (quadratic) is better at capturing data that is really low and high. The inverse clearly is not as good as the logit. It is unable to capture the low data at like temperature 27. 
+
+Now, we want to write the model with two parameters, $\beta_0$ and $\beta_1$, and find their maximum likelihood estimates. The binomial likelihood (log-likelihood) for original logit model is:
+
+$\ell(\beta) = \sum_{i=1}^{n}[y_i\eta_i\log(1+e^{\eta_i})\binom{m_i}{y_i}]$
+
+Since we only have 81 data points and 2 predictors, we can rewrite it as:
+
+$\ell(\beta) = \sum_{i=1}^{81}[y_i\eta_i\log(1+e^{\eta_i})\binom{m_i}{y_i}]$
+
+with $\eta_i = \log(\frac{p_i}{1-p_i})$.
+
+Therefore, we can rewrite it as:
+$\ell(\beta) = \sum_{i=1}^{81}[y_i\log(p_i) + (m_i - y_i)\log(1-p_i) + \log\binom{m_i}{y_i}]$
+
+
+
+
+

@@ -1,0 +1,92 @@
+---
+title: "STAT4520 HW1"
+author: Anton Yang
+output: html_document
+date: "2024-09-02"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Problem 1 Linear Model Review
+
+Generate data set with x1 be a binary variable with 0 and 1, and x2 be normally randomly generated with mean of 0 and standard deviation of 1. y is the response variable of x1+x2+rnorm(200).
+
+```{r}
+set.seed(234)
+library(MASS)
+library(olsrr)
+x1<-sample(c(0,1), 200, replace = TRUE)
+x2<-rnorm(200)
+y<-x1+x2+rnorm(200)
+model1<-lm(y~x1+x2)
+summary(model1)
+```
+
+Now we'll add more predictor with x3 be a exponential randomly generated number with a rate of 1/20. We'll also include x4 being Poisson randomly generated number with mean of 5. Let y = x1 + x2 + rnorm(200)
+
+```{r}
+x3<-rexp(200,1/2000)
+x4<-sample(c(0,1), prob = c(0.6,0.4), replace = T, size = 200)
+y<-x1+x2+rnorm(200)
+model2<-lm(y~x1+x2+x3+x4)
+summary(model2)
+```
+
+```{r}
+anova_table<-anova(model1, model2)
+print(anova_table)
+```
+
+To check the effectiveness of the model, we'll use the F-test to check on the importance of the parameters x3 and x4. For the Null Hypothesis, $H_0$: the simpler model with x1 and x2 is correct, and the alternative hypothesis, $H_1$: our larger model with additional parameters x3 and x4 is correct. According to the ANOVA Table, we can see that the p-value is significantly lower than 0.05, so model 2 with x1, x2, x3, and x4 is a better model. Therefore, we reject the Null Hypothesis. 
+
+```{r}
+ols_step_forward_aic(model2, details = FALSE)
+ols_step_backward_aic(model2, details = FALSE)
+
+```
+
+Based on the result, we can see that the step wise selection model based on AIC for both forward and backward chose that the predictors x1 and x2 is the best possible model with the highest AIC. In addition, we can also see that based on the all possible model, x1 and x2 has the highest adjusted $R^2$. Therefore, it can be concluded that the model with x1 and x2 predictors as the best model, so this is not the same model. 
+
+Therefore, the step wise selection did not retreive the same model with y = x1 + x2 + x3 + x4 + rnorm(200). It did indeed retrieve the true model with y = x1 + x2 + rnorm(200), which is the we can see that both mdoel selected based on forward and backward step wise selection show the coefficient near to one for both x1 and x2. Therefore, it did recover the truth. 
+
+```{r}
+true_model<-lm(y~x1+x2)
+confint(true_model)
+```
+
+## Problem 2 More Observations
+
+```{r}
+x1<-sample(c(0,1), 2000, replace = TRUE)
+x2<-rnorm(2000)
+y<-x1+x2+rnorm(2000)
+model1<-lm(y~x1+x2)
+summary(model1)
+```
+
+```{r}
+x3<-rexp(2000,1/2000)
+x4<-sample(c(0,1), prob = c(0.6,0.4), replace = T, size = 2000)
+y<-x1+x2+rnorm(2000)
+model2<-lm(y~x1+x2+x3+x4)
+summary(model2)
+```
+
+```{r}
+ols_step_forward_aic(model2, details = TRUE)
+ols_step_backward_aic(model2, details = TRUE)
+ols_step_all_possible(model2, details = TRUE)
+```
+
+```{r}
+true_model<-lm(y~x1+x2)
+confint(true_model)
+```
+
+
+
+
+
+

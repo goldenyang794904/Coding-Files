@@ -1,0 +1,241 @@
+---
+title: "STAT4520 HW3"
+author: Anton Yang
+output: pdf_document
+date: "2024-09-29"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Problem 1
+```{r}
+library(faraway)
+library(ggplot2)
+library(pscl)
+library(nnet)
+library(MASS)
+library(dplyr)
+
+set.seed(123)
+lambda<-3
+pi<-0.5
+n<-100
+
+zip_data<-ifelse(rbinom(n, 1, pi) == 1, 0, rpois(n, lambda))
+mean<-mean(zip_data)
+variance<-var(zip_data)
+
+cat("Mean:", mean, "\n")
+cat("Variance:", variance, "\n")
+
+glm_model<-glm(zip_data ~ 1, family = poisson)
+sumary(glm_model)
+
+pchisq(260.19280, 99, lower.tail = F )
+
+```
+
+For this model, we will choose $\lambda = 3$ and $\pi = 0.5$. We'll generate 100 data and we can see that the mean is 1.67 and the variance is 3.758687. This suggests that that this is an overdispersion model with the variance being higher than the mean. 
+
+After to constructing the model, we can see that the estimated coefficient is 0.512824. We conducted a goodness of it and is produces a p-value of 2.010829e-16. This suggests that the standard Poisson model doesn't provide a good fit. This means that there's evidence that the Poisson GLM was the wrong model, and we can experiment with the Zero Inflated or Hurdle Model. 
+
+## Problem 2
+
+```{r}
+data(dvisits, package = "faraway")
+data<-dvisits
+
+par(mfrow = c(1,2))
+
+ggplot(data, aes(x = age, y = doctorco)) +
+  geom_point() +
+  labs(title = "Scatter Plot of doctorco vs. Age",
+       x = "Age",
+       y = "doctorco") +
+  theme_minimal()
+
+ggplot(data, aes(x = illness, y = doctorco)) +
+  geom_point() +
+  labs(title = "Scatter Plot of doctorco vs. Illness",
+       x = "Illness",
+       y = "doctorco") +
+  theme_minimal()
+
+avg_age <- data %>%
+  group_by(doctorco) %>%
+  summarize(avg_age = mean(age, na.rm = TRUE))
+
+avg_illness <- data %>%
+  group_by(doctorco) %>%
+  summarize(avg_illness = mean(illness, na.rm = TRUE))
+
+ggplot(avg_age, aes(x = doctorco, y = avg_age)) +
+  geom_point() +
+  geom_line() +  
+  labs(title = "Average Illness by doctorco",
+       x = "doctorco",
+       y = "Average Age") +
+  theme_minimal()
+
+ggplot(avg_illness, aes(x = doctorco, y = avg_illness)) +
+  geom_point() +
+  geom_line() +  # Optional: connect points with lines
+  labs(title = "Average Illness by doctorco",
+       x = " doctorco",
+       y = "Average Illness") +
+  theme_minimal()
+```
+
+We can see that there's a little correlation as the age higher there's higher number of doctorco (number of consultations with a doctor or specian the past 2 weeks). We can also see that there's a little correlation as the number of illness increases, doctorco increases. We can also see that both average age and illness increase as the doctorco increases. 
+
+```{r}
+model<-glm(doctorco ~ sex + age + agesq + income + levyplus + freepoor + freerepa + illness + actdays + hscore + chcond1 + chcond2, data = data, family = poisson(link = "log"))
+sumary(model)
+
+pchisq(4379.51510, 5177, lower.tail = F)
+```
+
+We can see that according to the model, not many variables are significant. According to the goodness of fit, this model provides a good fit with a p-value of 1. 
+
+```{r}
+AICModel<-step(model, trace = 0)
+sumary(AICModel)
+
+pchisq(4380.96103, 5190-11, lower.tail = FALSE)
+```
+
+According to the AIC, we have $\log(\mu_i) = -2.089063 + 0.162000x_{sex} + 0.355131x_{age} -0.199806x_{income} + 0.083689x_{levyplus} - 0.469596x_{freepoor} + 0.186101x_{illness} +  0.126611x_{actdays} + 0.031116x_{hscore} + 0.121100_{chcond1} + 0.158894x_{chcond2}$. We can see that the model is a very good fit with a p-value of 1. We can see that illness is really significant, with a p-value near to 0, to the model and has a coefficient of 0.1861008. This means that every increase in illnesses in past 2 weeks will increase the prediction of doctorco by a factor $e^{0.1861008}$. We can also see that actdays is also really significant. It has a coefficient of 0.1266107, which means every increase in actdays increases the prediction of doctorco by a factor $e^{0.1266107}$. Lastly, hscore is significant but not as much as illness and actdays. hscore has a coefficient of 0.0311156, which means that every increase in hscore will increase the prediction of doctorco by a factor $e^{0.0311156}$.
+
+```{r}
+first_person <- data[1,]
+log_lambda<-predict(AICModel, newdata = first_person, type = "link")
+lambda<-exp(log_lambda)
+
+k<-10
+probabilities <- dpois(0:k, lambda)
+prob_df <- data.frame(Visits = 0:k, Probability = probabilities)
+
+print(prob_df)
+
+ggplot(prob_df, aes(x = Visits, y = Probability)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  labs(title = "Predicted Probability Distribution of Doctor Visits",
+       x = "Number of Visits",
+       y = "Probability") +
+  theme_minimal()
+```
+
+We can see that the first person visits 0 doctors has a probability of about 70%. We can see that there's a significant decrease in probability as number of doctor visits increase. 
+
+```{r}
+prob_df$Cumulative_Probability <- cumsum(prob_df$Probability)
+
+print(prob_df)
+
+ggplot(prob_df, aes(x = Visits, y = Cumulative_Probability))+
+  geom_bar(stat = "identity", fill = "skyblue") +
+  labs(title = "Cumulative Probability of Doctor Visits",
+       x = "Number of Visits",
+       y = "Probability") +
+  theme_minimal()
+```
+We can see that the probability cumulates to 1 when the number of visit is 3. This means that there's a low probability that the first person visits 3 or more doctors. 
+
+```{r}
+table(data$doctorco)
+
+predicted_counts<-predict(AICModel, type = "response")
+expected_freq <- table(factor(round(predicted_counts), levels = 0:max(data$doctorco)))
+print(expected_freq)
+```
+
+We can see from the that there are excessive number of 0's, and in fact, majority of the people has 0 doctor visits. Therefore, it is a worth fitting a Zero-Inflated Model count model in this case. 
+
+```{r}
+modz <- zeroinfl(doctorco ~ sex + age + agesq + income + levyplus + freepoor + freerepa + illness + actdays + hscore + chcond1 + chcond2, data = data)
+summary(modz)
+
+AICmodz <- step(modz, trace = 0)
+summary(AICmodz)
+```
+
+## Problem 3
+
+```{r}
+data(debt, package = "faraway")
+debt = debt[complete.cases(debt),]
+ggplot(debt, aes(x = factor(ccarduse), y = prodebt)) +
+  geom_boxplot() +
+  labs(x = "Credit Card Use", y = "Prodebt", title = "Boxplot of Prodebt by Credit Card Use") +
+  theme_minimal()
+```
+According to the boxplot, we can clear see that as ccarduse increases, the median prodebt increases. This means higher use of credit cards is positively correlated with the score on a scale of attitudes to debt.We can also see the lower and upper quartile increase when the ccarduse increases. 
+
+```{r}
+multi_model<-multinom(ccarduse ~ ., data = debt)
+summary(multi_model)
+```
+
+```{r, results = "hide"}
+AICmulti_model<-step(multi_model, trace = 0, direction = "backward")
+```
+
+```{r}
+summary(AICmulti_model)
+```
+
+From the AIC selected model (backward), we can see that kept incomegp, agegp, bankacc, bsocacc, cigbuy, and prodebt. The final model has an AIC of 544.9554 and the original model has an AIC of 556.9981. Since the final model has a smaller AIC, this means that the final model is a better model than the original model. 
+
+```{r}
+ordinal_model<-polr(factor(ccarduse) ~ ., data = debt)
+summary(ordinal_model)
+
+AICordinal_model<-step(ordinal_model, trace = 0, direction = "backward")
+summary(AICordinal_model)
+```
+
+We can see that the ordinal model kept same variables as the multinomial logit model. It kept incomegp, agegp, bankacc, bsocacc, cigbuy, and prodebt. The AIC for the original ordinal model is 539.673, and final ordinal model has an 533.5895, which is lower than original multinomial model, AIC selected multinomial model, and original ordinal model. This means that the best model is AIC final ordinal model. 
+
+```{r}
+predictors <- expand.grid(
+  incomegp = round(mean(debt$incomegp)),
+  house = round(mean(debt$house)),
+  children = round(mean(debt$children)),
+  singpar = round(mean(debt$singpar)),
+  agegp = round(mean(debt$agegp)),
+  bankacc = round(mean(debt$bankacc)),
+  bsocacc = round(mean(debt$bsocacc)),
+  manage = round(mean(debt$manage)),
+  cigbuy = round(mean(debt$cigbuy)),
+  xmasbuy = round(mean(debt$xmasbuy)),
+  locintrn = round(mean(debt$locintrn)),
+  prodebt = seq(min(debt$prodebt), max(debt$prodebt), length.out = 100)
+)
+
+AICmulti_model_pred<-predict(AICmulti_model, newdata = predictors, type = "probs")
+
+AICordinal_model_pred<-predict(AICordinal_model, newdata = predictors, type = "probs")
+
+prediction_data <- data.frame(
+  prodebt = predictors$prodebt,
+  AICmulti_model_pred = AICmulti_model_pred[, 1],  
+  AICordinal_model_pred = AICordinal_model_pred[, 1]
+)
+
+ggplot(prediction_data) +
+  geom_line(aes(x = prodebt, y = AICmulti_model_pred, color = "AIC Selected Multinomial")) +
+  geom_line(aes(x = prodebt, y = AICordinal_model_pred, color = "AIC Selected Ordinal")) +
+  labs(title = "Predicted Probabilities for Multinomial and Ordinal Models",
+       x = "Prodebt",
+       y = "Probability") +
+  theme_minimal() +
+  scale_color_manual(values = c("blue", "red", "green", "purple")) +
+  guides(color = guide_legend(title = "Model Type"))
+```
+I set all the predictors to their rounded averages. The plot shows that the multinomial logit model predicts a higher probability than the ordinal model for prodebt values ranging from about 1 to 4. Conversely, when prodebt exceeds 5, the ordinal model predicts a higher probability than the multinomial logit model. This shift shows the different predictive behaviors of the two models based on the levels of prodebt.
+
+
+
+

@@ -1,0 +1,99 @@
+---
+title: "HW2 - STAT 4510/7510 - Spring 2024"
+author: "Yang, Anton - #14405729"
+date: "Due Wednesday, Feb. 7, 11:30 pm (upload PDF to Canvas)"
+output:
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+**Instructions:**  Please list your name and student number clearly.  In order to receive credit for a problem, your solution must show sufficient detail so that the grader can determine how you obtained your answer.
+
+Use R Markdown to create a WORD file.  Before submitting, make sure you convert the WORD file to a PDF.  All R code should be included, as well as all output produced.  Upload your work to the Canvas course site.
+
+## Problem 1
+
+Complete Chapter 2, problem 8 (p. 54), parts (a), (b), (c.i), (c.ii), and (c.iii).  You need not complete the remaining parts or beyond sub-part (iii) of part (c).
+
+```{r problem_1}
+library(e1071) 
+library(caTools) 
+library(class)
+
+college<-read.csv("College.csv")
+rownames(college)<-college[,1]
+View(college)
+college<-college[,-1]
+View(college)
+summary(college)
+college$Private<-as.factor(college$Private)
+pairs(college[,1:10])
+plot(college$Private,college$Outstate,
+     main = "Outstate of Private vs. Public",
+     xlab = "Private",
+     ylab = "Outstate")
+```
+
+## Problem 2
+
+Continue working with the `College.csv` data set from problem 1.  
+
+(a) Split the data into a 80% training and 20% test set. Set a seed of 10 for consistent results.  How many observations are in each of the two sets?
+```{r problem_2a}
+set.seed(10)
+split<-sample.split(college,SplitRatio = 0.8)
+
+training_set<-subset(college, split == TRUE)
+test_set<-subset(college, split == FALSE)
+
+nrow(training_set)
+nrow(test_set)
+
+
+```
+ There is a total of 605 of observations in the training set and 172 observations in the test set. 
+
+(b)  We want to try to predict whether a college is private using K nearest neighbors.  Install the `class` package (if you haven't already done so), and remember to run `library(class)`, which contains the `knn()` function.  Change `Private` to a factor variable.  Then predict the classes of your test set using the `knn()` function with `k=8`.  What is the misclassification rate?
+
+```{r problem_2b}
+train_scale<-scale(training_set[,-1])
+test_scale<-scale(test_set[,-1])
+
+classifier_knn<-knn(train=train_scale,
+                    test=test_scale,
+                    cl=training_set$Private,
+                    k=8)
+
+cm<-table(test_set$Private, classifier_knn)
+
+
+misClassError<- 1 - (sum(diag(cm)) / sum(cm))
+print(paste('Misclassification Rate = ',misClassError))
+  
+```
+The misclassification rate for k=8 is approximately 0.08.
+
+(c) Repeat the KNN analysis using a values of `k = 5`, `k = 10`, `k = 15`, and `k = 20`.  Find the misclassification rate for each value of `k` and comment on your results.
+```{r problem_2c}
+k_values <- c(5, 10, 15, 20)
+
+knn_classifier <- sapply(k_values, function(k) {
+  classifier_knn <- knn(train = train_scale,
+                        test = test_scale,
+                        cl = training_set$Private,
+                        k = k)
+  cm <- table(test_set$Private, classifier_knn)
+  
+  misClassError <- 1 - (sum(diag(cm)) / sum(cm))
+})
+
+accuracy_data <- data.frame(K = k_values, Accuracy = 1 - knn_classifier)
+
+print(accuracy_data)
+
+
+```
+Out of the 4 K values, highest misclassification rate are when K = 10 and k = 5, 15, 20 have the same misclassification rate.  

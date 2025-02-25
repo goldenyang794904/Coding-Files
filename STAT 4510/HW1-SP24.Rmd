@@ -1,0 +1,224 @@
+---
+title: "HW1 - STAT 4510/7510 - Spring 2024"
+author: "Yang, Anton - #14405729"
+date: "Due Wednesday, Jan. 31, 11:30 pm (upload PDF to Canvas)"
+output:
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+**Instructions:**  Please list your name and student number clearly.  In order to receive credit for a problem, your solution must show sufficient detail so that the grader can determine how you obtained your answer.
+
+Use R Markdown to create a WORD file.  Before submitting, make sure you convert the WORD file to a PDF.  All R code should be included, as well as all output produced.  Upload your work to the Canvas course site.
+
+## Problem 1
+
+Complete 2.3 Lab: Introduction to R, found on pages 42 - 52.  *(You are expected to simply work through the textbook lab as written and execute the commands.  Include all commands and output in your homework submission.)*
+
+```{r problem_1}
+x<-c(1,3,2,5)
+x
+
+x = c(1,6,2)
+x
+y = c(1,4,3)
+
+length(x)
+
+length(y)
+
+x+y
+
+ls()
+
+rm(x,y)
+
+ls()
+
+rm(list=ls())
+
+?matrix
+
+x<-matrix(data=c(1,2,3,4), nrow=2, ncol=2)
+x
+
+x<-matrix(c(1,2,3,4),2,2)
+
+matrix(c(1,2,3,4),2,2,byrow=TRUE)
+
+sqrt(x)
+
+x^2
+
+x<-rnorm(50)
+y<-x+rnorm(50, mean = 50, sd = .1)
+cor(x,y)
+
+set.seed(1303)
+rnorm(50)
+
+set.seed(3)
+y<-rnorm(100)
+mean(y)
+var(y)
+sqrt(var(y))
+sd(y)
+
+x<-rnorm(100)
+y<-rnorm(100)
+plot(x,y)
+plot(x,y, xlab = "this is the x-axis",
+     ylab = "this is the y-axis",
+     main = "Plot of X vs Y")
+
+pdf("Figure.pdf")
+plot(x,y, col="green")
+dev.off()
+
+x<-seq(1,10)
+x
+
+x<-1:10
+x
+
+x<-seq(-pi,pi,length=50)
+y<-x
+f<-outer(x,y, function(x,y) cos(y) / (1+x^2))
+contour(x,y,f)
+contour(x, y, f, nlevels = 45, add = T)
+
+fa <- (f - t(f)) / 2
+contour(x, y, fa, nlevels = 15)
+ 
+image(x, y, fa)
+persp(x, y, fa)
+persp(x, y, fa, theta=30)
+persp(x, y, fa, theta=30, phi=20)
+persp(x, y, fa, theta=30, phi=70)
+persp(x, y, fa, theta = 30, phi = 40)
+
+A <-matrix(1:16, 4, 4)
+A
+
+A[2, 3]
+
+A[c(1, 3), c(2, 4)]
+A[1:3, 2:4]
+A[1:2, ]
+A[, 1:2]
+A[1, ]
+A[-c(1,3), ]
+A[-c(1,3), -c(1,3,4)]
+dim(A)
+
+Auto <- read.table("Auto.data")
+View(Auto)
+head(Auto)
+
+Auto <- read.table("Auto.data", header = T, na.strings = "?", stringsAsFactors = T)
+View(Auto)
+
+Auto<-read.csv("Auto.csv", na.strings="?", stringsAsFactors = T)
+View(Auto)
+dim(Auto)
+Auto[1:4, ]
+
+Auto<-na.omit(Auto)
+dim(Auto)
+names(Auto)
+
+plot(Auto$cylinders, Auto$mpg)
+attach(Auto)
+plot(cylinders, mpg)
+
+cylinders<-as.factor(cylinders)
+plot(cylinders, mpg)
+plot(cylinders, mpg, col = "red")
+plot(cylinders, mpg, col = "red", varwidth = T)
+
+plot(cylinders, mpg, col = "red", varwidth = T, horizontal = T)
+plot(cylinders, mpg, col = "red", varwidth = T, xlab = "cylinders", ylab = "MPG")
+
+hist(mpg)
+hist(mpg, col = 2)
+hist(mpg, col = 2, breaks = 15)
+
+pairs(Auto)
+pairs(
+  ~mpg +displacement + horsepower + weight + acceleration, data = Auto
+)
+
+plot(horsepower, mpg)
+identify(horsepower, mpg, name)
+
+summary(Auto)
+
+summary(mpg)
+```
+
+
+## Problem 2
+
+The file `iris.csv` contains the famous (Fisher's or Anderson's) iris data set.  It gives the measurements in centimeters of the variables sepal length and width and petal length and width, respectively, for 50 flowers from each of 3 species of iris. The species are Iris setosa, versicolor, and virginica.
+
+a) Use the function `read.csv()` to read the data into `R` and call it `iris`.
+
+```{r problem_2a}
+iris<-read.csv("iris.csv")
+```
+   
+b) Use the `str()` command to look at the structure of the data set.  How many observations are there?  How many variables?  What type of data is each variable (*character, numeric, integer, logical, or complex*)?
+
+```{r problem_2b}
+str(iris)
+```
+There are 150 observations and 5 variables. Variables sepal.length, sepal. width, petal.length, petal.width are numeric and variety is character. 
+
+c) Change the variable `variety` to a factor variable using the `as.factor()` command.
+
+```{r problem_2c}
+iris$variety<-as.factor(iris$variety)
+```
+
+d) Produce a summary table of the data set.
+
+```{r problem_2d}
+summary(iris)
+```
+
+e) Use the `hist()` command to create a histogram for the variable `sepal.length`.  Add a title and axis labels to the plot.
+
+```{r problem_2e}
+hist(iris$sepal.length,
+     main = "Iris Length Histogram",
+     xlab = "Length",
+     ylab = "Frequency")
+```
+
+f) Use the plot() command to create a boxplot of `sepal.length` for each `variety`.  Add a title and axis labels to each plot and use a different color for each `variety` of iris.
+
+```{r problem_2f}
+plot(iris$variety,iris$sepal.length,
+     main = "Boxplot of Iris Variety",
+     xlab = "Variety",
+     ylab = "Length",
+     col = c("red", "blue","green"))
+```
+
+g) Produce a scatterplot matrix of all variables and note some relationships between them.  Which attributes appear to be highly related?  Which attributes do a good job of distinguishing variety?
+
+```{r problem_2g}
+pairs(iris)
+```
+The variables Sepal Length and Petal Length, Sepal Length and Petal Width, Petal Length and Petal Width, and Petal Length and Petal Width appear highly related. Petal Width and Petal Length do a good job on distinguishing variety. 
+   
+h) Use the `cor()` function to produce a correlation matrix for the data.  Note that this function will only work for data that is numeric, so you will need to filter out any variables that are not numeric.  Are there any variables with high correlations (values close to 1 or -1)?  
+
+```{r problem_2h}
+iris_cordata<-iris[, !names(iris) %in% "variety"]
+cor(iris_cordata)
+```
+Petal Width and Petal Length have high correlation with 0.9628654 which is very highly correlated. Petal Length and Sepal Length with correlation 0.8717538, and Petal Width and Sepal Length with correlation 0.8179411 are also moderately high correlated, but not as good as Petal Width and Petal Length. 

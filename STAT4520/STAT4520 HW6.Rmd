@@ -1,0 +1,98 @@
+---
+title: "STAT4520 HW6"
+author: Anton Yang
+output: pdf_document
+date: "2024-11-18"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Problem 1
+```{r}
+library(faraway)
+library(lme4)
+library(caret)
+library(nnet)
+library(ggplot2)
+library(NeuralNetTools)
+
+set.seed(123)
+
+data<-ratdrink
+
+model <- lmer(wt ~ weeks * treat + (weeks | subject), data = ratdrink)
+sumary(model, digits = 3)
+coef(model)$subject
+```
+
+According to the summary, the rat's weight increase about 26.48 for each week of study. We can see that if the rat has the treatment thiouracil, it increases the weight by 4.78, and if the has the treatment thyroxine, it decreases the weight by 0.7943. We also fits the interaction term to the model. If the rat has the treatment thiouracil, it decreases 9.37 weight each week. Lastly, if the rat has the treatment thyoxine increases the weight by 0.6629 weight each week. 
+
+The standard deviation deviation for the intercept is 5.7 and the standard deviation for the slope is 3.76. We can see that the variation in increase weight is smaller than the variation in overall weight between individual rats. This model has the correlation of -0.133. Lastly, the variation has a standard deviation of 4.348. 
+
+## Problem 2a
+```{r}
+set.seed(123)
+data<-read.csv("/Users/antonyang/Downloads/BostonScaled.csv")
+
+train_indices<-createDataPartition(data$medv, times = 1, p = 0.8, list = FALSE)
+
+training_set<-data[train_indices,]
+test_set<-data[-train_indices,]
+
+mse_values<-numeric(10)
+
+for (i in 1:10){
+  nn_model<-nnet(medv ~., data = training_set, size = i, linout = TRUE, trace = FALSE)
+  predictions<-predict(nn_model, test_set)
+  mse_values[i]<-mean((predictions - test_set$medv)^2)
+}
+
+mse_results <- data.frame(Hidden_Layer_Size = 1:10, Test_Set_MSE = mse_values)
+print(mse_results)
+
+ggplot(mse_results, aes(x = Hidden_Layer_Size, y = Test_Set_MSE)) +
+  geom_line(color = "blue", size = 1) +       
+  geom_point(color = "red", size = 2) +     
+  labs(title = "MSE vs Hidden Layer Size",
+       x = "Hidden Layer Size",
+       y = "Test Set MSE") +
+  theme_minimal()  
+
+best_hidden_size<-which.min(mse_values)
+best_nn_model<-nnet(medv~., data = training_set, size = best_hidden_size, linout = TRUE, trace = FALSE)
+```
+
+We can see that according to our simple single hidden layer neural networks model, we can see that the model with 6 hidden layers has the lowest test MSE. Therefore, our optimal model is a neural network with 6 hidden layers. 
+
+## Problem 2b
+```{r}
+plotnet(best_nn_model)
+```
+
+## Problem 3
+```{r}
+set.seed(123)
+data<-read.csv("/Users/antonyang/Downloads/titanticScaled.csv")
+
+nn_model<-nnet(as.factor(Survived) ~., data = data, size = 20, trace = FALSE, linout = FALSE, maxit = 2000, decay = 0.01)
+
+plotnet(nn_model)
+
+best_predictions<-as.factor(predict(nn_model, data, type = "class"))
+
+conf_matrix<-confusionMatrix(as.factor(data$Survived), best_predictions)
+print(conf_matrix)
+```
+
+We constructed the optimal model with 20 hidden layer and weight decay of 0.01. According to our confusion matrix, this model has an accuracy of 0.8487. We can see that our model is relatively good at predicting both positive and negative with a senstivity of 0.8405 and a specificity of 0.8640.
+
+
+
+
+
+
+
+
+

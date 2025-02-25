@@ -1,0 +1,282 @@
+---
+title: "Comparative Analysis on Credit Evaluation Models: Insights for Financial Institutions"
+author: "Anton Yang"
+output: pdf_document
+date: "2024-05-01"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+Over the years, the financial institution has gathered extensive banking details and credit-related information. Seeking efficiency and accuracy, management aims to develop an intelligent system to categorize individuals into credit score brackets, reducing manual efforts. A credit score plays a crucial role in determining access to loans, credit cards, and financial products, making it essential for financial institutions to predict creditworthiness accurately. Previously, we explored 3 types of classifier model: KNN (K-Nearest Neighbor), LDA (Linear Discriminant Analysis), and QDA (Quadratic Discriminant Analysis). 
+
+This study will focus more on understanding the structure of the data, and find a better performance model. We saw that KNN with K=1 outperformed LDA and QDA model significantly. Therefore, this study will utilize unsupervised learning K-Mean Clustering to see the structure of the data, and we'll explore classifier models such Support Vector Machine and Decision Tree Model. 
+
+```{r echo=TRUE, include=FALSE}
+library(class)
+library(ISLR)
+library(boot)
+library(caret)
+library(corrplot)
+library(MASS)
+library(ggplot2)
+library(randomForest)
+library(psych)
+library(tree)
+library(gbm)
+library(e1071)
+```
+
+```{r summary}
+set.seed(1)
+credit_score<-read.csv("train.csv")
+str(credit_score)
+```
+
+Last time, we cleaned the data by removing the variables "Name", "Customer ID", "Month", "SSN", "Occupation", "Monthly Salary" (which correlates with annual income), and "Type of Loan". After removing these irrelevant variables, all the remaining variable converted to numeric. In addition, the constraint is adding to some variable like ages (18-120), and character variables are converted to classes. Finally, all the NA values are omitted. 
+
+```{r echo=TRUE, include=FALSE}
+credit_score[credit_score==""]<-NA
+credit_score[credit_score=="-"]<-NA
+credit_score[credit_score=="!@9#%8"]<-NA
+credit_score[credit_score=="__10000__"]<-NA
+
+#Get rid of all the unnecessary variables like name and id. 
+credit_score<-credit_score[,-c(1,2,3,4,6,9,7,14)]
+
+#convert response variable credit score to factors
+credit_score$Credit_Score<-as.factor(credit_score$Credit_Score)
+
+#set a limit to age and convert it to numeric. Only allow the age between 18 years old and 120 years old.
+credit_score$Age<-as.numeric(credit_score$Age)
+credit_score$Age[credit_score$Age < 18 | credit_score$Age >120]<-NA
+
+
+# Convert the data set to numeric from characters and categories
+credit_score$Annual_Income<-as.numeric(credit_score$Annual_Income)
+credit_score$Num_Bank_Accounts<-as.numeric(credit_score$Num_Bank_Accounts)
+credit_score$Num_Credit_Card<-as.numeric(credit_score$Num_Credit_Card)
+credit_score$Interest_Rate<-as.numeric(credit_score$Interest_Rate)
+credit_score$Num_of_Loan<-as.numeric(credit_score$Num_of_Loan)
+credit_score$Delay_from_due_date<-as.numeric(credit_score$Delay_from_due_date)
+credit_score$Num_of_Delayed_Payment<-as.numeric(credit_score$Num_of_Delayed_Payment)
+credit_score$Changed_Credit_Limit<-as.numeric(credit_score$Changed_Credit_Limit)
+credit_score$Outstanding_Debt<-as.numeric(credit_score$Outstanding_Debt)
+credit_score$Credit_Utilization_Ratio<-as.numeric(credit_score$Credit_Utilization_Ratio)
+credit_score$Amount_invested_monthly<-as.numeric(credit_score$Amount_invested_monthly)
+credit_score$Total_EMI_per_month<-as.numeric(credit_score$Total_EMI_per_month)
+credit_score$Monthly_Balance<-as.numeric(credit_score$Monthly_Balance)
+
+plot_data<-credit_score
+plot_data$Payment_of_Min_Amount[plot_data$Payment_of_Min_Amount == "NM"]<-"No"
+plot_data$Credit_Mix[plot_data$Credit_Mix == "_"]<-NA
+plot_data<-na.omit(plot_data)
+
+# Replace specific values in Credit_Mix
+credit_score$Credit_Mix[credit_score$Credit_Mix == "_"] <- NA
+credit_score$Credit_Mix[credit_score$Credit_Mix == "Bad"] <- 0
+credit_score$Credit_Mix[credit_score$Credit_Mix == "Standard"] <- 1
+credit_score$Credit_Mix[credit_score$Credit_Mix == "Good"] <- 2
+credit_score$Credit_Mix<-as.numeric(credit_score$Credit_Mix)
+
+credit_score$Payment_of_Min_Amount[credit_score$Payment_of_Min_Amount=="NM" | credit_score$Payment_of_Min_Amount=="No"]<-0
+credit_score$Payment_of_Min_Amount[credit_score$Payment_of_Min_Amount=="Yes"]<-1
+credit_score$Payment_of_Min_Amount<-as.numeric(credit_score$Payment_of_Min_Amount)
+
+credit_score$Payment_Behaviour[credit_score$Payment_Behaviour=="Low_spent_Small_value_payments"]<-0
+credit_score$Payment_Behaviour[credit_score$Payment_Behaviour=="Low_spent_Medium_value_payments"]<-1
+credit_score$Payment_Behaviour[credit_score$Payment_Behaviour=="Low_spent_Large_value_payments"]<-2
+credit_score$Payment_Behaviour[credit_score$Payment_Behaviour=="High_spent_Small_value_payments"]<-3
+credit_score$Payment_Behaviour[credit_score$Payment_Behaviour=="High_spent_Medium_value_payments"]<-4
+credit_score$Payment_Behaviour[credit_score$Payment_Behaviour=="High_spent_Large_value_payments"]<-5
+credit_score$Payment_Behaviour<-as.numeric(credit_score$Payment_Behaviour)
+```
+
+```{r echo==TRUE, include=TRUE}
+history_data<-credit_score$Credit_History_Age
+
+#split the sentence into individual word
+words_list <- lapply(history_data, function(sentence) unlist(strsplit(as.character(sentence), "\\s+")))
+
+#Extract the months from the data
+years <- as.numeric(sapply(words_list, function(words) words[1]))
+
+#Extract the days from the data
+months<-as.numeric(sapply(words_list, function(words) words[4]))
+
+#Convert the credit history age data to days
+credit_score$Credit_History_Age<-(365*years+30*months)
+```
+
+```{r echo=TRUE, inclued=FALSE}
+credit_score<-na.omit(credit_score)
+```
+
+## Methods
+
+Now, we'll able to explore the data. First, we'll see split the dataset into training set (80%) and test set (20%).
+
+```{r echo=TRUE, include=TRUE}
+#splitting dataset into training and test data set
+split<-sample(nrow(credit_score), 0.8*nrow(credit_score))
+training_set<-credit_score[split,]
+test_set<-credit_score[-split,]
+
+str(training_set)
+```
+
+First, we'll understand more about the variables. We'll use Random Forest Importance Plot to see the most influential variables. The Importance Plot allows us to examine how much each feature contributes to the decision-making process across the different trees. The more a feature is used to create a signigicant splits, the more influential it is in the model's predictions. 
+
+```{r echo=TRUE, include=TRUE, fig.cap = "Importance Plot", fig.width=8, fig.height=10}
+rf_model <- randomForest(Credit_Score ~ .,,data = training_set, importance = TRUE)
+importance(rf_model)
+
+varImpPlot(rf_model)
+```
+
+The figure 1 reveals that the "Changed Credit Limit" variable has the highest Mean Decrease Accuracy, suggesting that removing this variable would cause the greatest drop in the model's accuracy. This means it's a key contributor to the model's ability to make accurate predictions. On the other hand, "Outstanding Debt" shows the highest Mean Decrease Gini, indicating that it's crucial for creating effective splits in the decision trees, which ultimately contributes to the model's structure and decision-making process.
+
+In contrast, some variables have low scores in both metrics. For example, "Number of Loan," "Payment of Minimum Amount," "Number of Bank Accounts," and "Payment Behavior" have low values for both Mean Decrease Accuracy and Mean Decrease Gini. This indicates that they don't play a significant role in the Random Forest's predictions and are not as critical to the model's decision-making process. These plots tell us which variables can we remove to improve the model. 
+
+Now, we want to explore the structure of the data by using K-Mean Clustering. K-Means Clustering is a unsupervised learning technique (without using the response variable) used to group data into clusters based on similarity. It starts by randomly assigning data points to a specific number of clusters, then finds the centroids, which are the central points for each cluster. The algorithm then iterates, recalculating the centroids and reassigning data points based on which centroid they're closest to. This process continues until the centroids no longer change significantly, indicating that the clusters are stable.
+
+In our case, since we have three distinct categories ("Good", "Standard", and "Poor"), we can set the number of clusters, or the "K" value, to 3. This predetermined value makes K-Means a suitable choice for clustering our data, providing a clear structure that aligns with our existing categorization. Since we already know the expected number of clusters, hierarchical clustering isn't as useful here. Hierarchical clustering doesn't require a predefined number of clusters and is more exploratory, which doesn't fit as well when we already have a clear idea of the data's structure.
+
+```{r echo=TRUE, include = TRUE}
+#clustering
+set.seed(1)
+cluster<-kmeans(training_set[,-20], 3, nstart = 50)
+table(cluster$cluster)
+```
+
+Most of the data points fall into the 1st cluster, indicating that a large portion of the dataset has similar characteristics. This suggests that the data isn't widely dispersed and that many observations share common traits or patterns, leading them to be grouped together in the same cluster.
+
+We wanted to determine if any two variables could distinctly separate the data into clusters. After analyzing several variable combinations, we discovered that any combination with Annual Income forms clear, distinct cluster. 
+
+```{r echo=TRUE, include = TRUE, fig.cap = "K-Means Clustering Plot"}
+plot(training_set$Age, training_set$Annual_Income, 
+     col=(cluster$cluster+1),
+     main = "K-Means Clustering Results with K=3",
+     xlab = "Age", ylab = "Annual Income", pch=20, cex=2)
+```
+
+For example, in figure 2, we found that a person's level of income strongly indicates which cluster they belong to. In a real-world context, this suggests that annual income might significantly affect a customer's credit score, which aligns with common understanding: higher incomes often correlate with better creditworthiness.
+
+Finally, we're considering whether we can reduce the dimensionality of our dataset. Running models like Random Forest and Support Vector Machine (SVM) can be time-consuming. In particular, SVM often requires considerable computational resources, and tuning parameters like cost and gamma through cross-validation can be challenging and slow. Finding ways to simplify the dataset could help speed up the modeling process and make it more efficient. 
+
+Thus, we consider using Principal Component Analysis (PCA) to reduce dimensionality. PCA transforms the data into a set of principal components that capture the most variance with fewer dimensions, potentially capturing data structure without losing too much information. While this approach can help reduce complexity, it's important to carefully determine the number of components to retain so that critical information isn't lost.
+
+```{r echo = TRUE, include = TRUE, fig.cap = "Proportion of Variance Explained Plot"}
+pca<-prcomp(training_set[,-20], scale = TRUE, center = TRUE)
+pca_var<-pca$sdev^2
+pve<-pca_var/sum(pca_var)
+plot(cumsum(pve), xlab = "Principal Component",
+ylab = "Cumulative Proportion of Variance Explained", ylim = c(0, 1), type = "b")
+```
+
+Figure 3 indicates that there's no noticeable elbow (sharp turning point) that would suggest a clear reduction in the number of components. This makes it challenging to choose a smaller subset of components without sacrificing a significant portion of the data's variance or information content. Consequently, it's not straightforward to reduce the dimensionality in a way that retains most of the original dataset's meaningful patterns. This makes sense since the data is complex and hardly any signicant pattern. Figure 3 shows that there's no clear elbow or sharp turning point to indicate where to reduce the number of components. This lack of a clear threshold makes it hard to determine how to effectively shrink the number of components without losing a significant amount of the dataset's variance or information. As a result, reducing dimensionality in this context is tricky, and there's a risk of losing critical patterns or insights from the data. This observation is consistent with the fact that the data is complex and doesn't exhibit any obvious or consistent patterns.
+
+Hence, these findings offer deeper insights into the data, providing a pathway to refine our understanding and potentially improve the model's performance. By exploring the data's structure, we can identify key factors that influence the results, which can lead to more effective strategies for enhancing the model's accuracy and reliability.
+
+## Results
+
+The ultimate goal is to find the optimal classifier model. The three models we are considering are Classification Trees, Random Forest, and Support Vector Machine. 
+
+First, we want to see how well does the Classification Trees perform. 
+
+```{r echo = TRUE, include = TRUE, fig.cap = "Classification Tree Model"}
+set.seed(1)
+tree_model<-tree(Credit_Score~., data=training_set)
+prune_tree<-cv.tree(tree_model, FUN=prune.misclass)
+prune<-prune.misclass(tree_model, best = 5)
+
+tree_pred<-predict(prune, test_set, type = "class")
+confusion_table_tree<-table(Actual = test_set$Credit_Score, Predicted = tree_pred)
+misclassification_rate_tree <- mean(tree_pred != test_set$Credit_Score)
+print(paste("Misclassification Rate:", misclassification_rate_tree))
+
+plot(prune)
+text(prune, pretty=0)
+```
+
+Figure 4 shows that the tree isn't very large, suggesting that only a few variables play a significant role in making predictions. Additionally, the misclassification rate is around 0.34, which didn't meet our expectations. We saw KNN model has a misclassification rate of 0.28, which is better than the classification model. 
+
+Now, we're exploring how to improve the classification tree model. One approach is the bagging method, which reduces the variance in decision trees by creating multiple trees using random subsets (with replacement) of the dataset and then averaging their predictions. This ensemble technique can lead to more robust and stable models by mitigating the risk of overfitting that can occur with a single decision tree. Therefore, we'll explore Random Forest model's performance. 
+
+```{r echo = TRUE, include = TRUE, fig.cap = "Random Forest Model Error Plot"}
+set.seed(1)
+plot(rf_model, main = "Random Forest Error Plot")
+
+rf_prediction<-predict(rf_model, newdata=test_set)
+
+misclassification_rate_rf <- mean(rf_prediction != test_set$Credit_Score)
+
+confusion_table_rf<-table(Actual = test_set$Credit_Score, Predicted = rf_prediction)
+
+print(confusion_table_rf)
+
+print(paste("Misclassification Rate:", misclassification_rate_rf))
+```
+
+According to figure 5, we can see that the error converges, and the bagging method will average the prediction error. 
+
+The Random Forest model has a misclassification rate of approximately 0.23, which is about 5% better than the KNN model. This indicates that Random Forest is more dependable for prediction compared to KNN, suggesting it's a more accurate choice for this dataset.
+
+Lastly, we want to explore Support Vector Machine (SVM) to determine if it can outperform the Random Forest model. SVM is a machine learning algorithm used for classification and regression tasks. It works by finding the optimal hyperplane or boundary that separates different classes in the dataset, often aiming for the widest possible margin to ensure robust and reliable classification. By adjusting parameters like C and gamma, we can fine-tune the model to achieve better accuracy and minimize misclassification rates.
+
+```{r echo = TRUE, include = TRUE}
+set.seed(1)
+svm_model<-svm(Credit_Score ~ ., data= training_set, kernel="radial", cost=1)
+
+svm_prediction<-predict(svm_model, newdata= test_set)
+
+confusion_table_svm<-table(Actual = test_set$Credit_Score, Predicted = svm_prediction)
+
+misclassification_rate_svm <- mean(svm_prediction != test_set$Credit_Score)
+
+print(confusion_table_svm)
+
+print(paste("Misclassification Rate:", misclassification_rate_svm))
+```
+
+After tuning the Support Vector Machine, we found that the optimal cost is 1 and the best kernel is radial However, the misclassification rate is about 0.33, which is an improvement over the classification tree but still not meeting out expectations. This suggests that while SVM offers some gains in accuracy, it may not be the ideal solution for our data. 
+
+Overall, the Random Forest model delivered the best results, outperforming the KNN model. This indicates that the Random Forest model is the most suitable choice for predicting customer credit scores. The possible reason that Random Forest is the best model could be due to the complexity of the model and dimension as KNN performance gets worse as dimension is higher. In contrast, the classification tree and Support Vector Machine models did not perform as well as KNN, reinforcing the recommendation to use Random Forest for this task.
+
+## Discussion
+
+Based on our analysis and results, we've determined that the Random Forest model is the most effective for predicting customer credit scores. However, its computational cost and time requirements are significant, indicating that our next steps should focus on optimizing the model to reduce these costs.
+
+One of the main challenges we encountered was the "curse of dimensionality," which made cross-validation impractical. This limitation meant we couldn't fully explore and fine-tune the optimal hyperparameters, potentially affecting the model's efficiency. To overcome this, we should explore dimensionality reduction techniques, such as feature selection or Principal Component Analysis (PCA), which can help simplify the data without sacrificing too much information.
+
+Additionally, we should consider using more efficient cross-validation strategies to fine-tune the model while keeping computational costs manageable. Using PCA with an appropriate threshold for explained variance can guide us in selecting the optimal number of components, ensuring we retain as much meaningful data as possible.
+
+Therefore, as we move forward, our focus should be on reducing dimensionality and optimizing the model to reduce time consumption without compromising accuracy. By doing so, we can improve the efficiency of the Random Forest model and make it more practical for broader use.
+
+## Conclusion
+
+
+In conclusion, this study offers valuable insights into developing and optimizing credit evaluation models for financial institutions. By analyzing models like Classification Tree, Support Vector Machine, and Random Forest, we've identified the most effective approach for predicting credit scores, along with the strengths and weaknesses of each model.
+
+To understand the dataset's structure, we used K-Means Clustering and Principal Component Analysis (PCA). Our results showed that Annual Income is a key variable that distinctly separates clusters, indicating that income level plays a significant role in categorizing data points. We also employed PCA to examine possible dimensionality reduction, but we found no clear indication of the optimal number of components, suggesting a more complex data structure.
+
+We could improve this study by delving deeper into PCA to identify the optimal threshold for dimensionality reduction, which could then help us effectively cross-validate while tuning hyperparameters. By determining the right level of explained variance in PCA, we can reduce the dataset's complexity without losing essential information, enabling more efficient and accurate cross-validation. This approach could lead to better hyperparameter tuning, ultimately resulting in a more robust credit evaluation model. 
+
+These findings enhance our understanding of the data and provide a path forward for further analysis and model optimization.
+
+
+
+
+
+
+
+
+
+
+
+
+
+

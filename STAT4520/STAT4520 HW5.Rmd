@@ -1,0 +1,253 @@
+---
+title: "STAT4520 HW5"
+author: Anton Yang
+output: pdf_document
+date: "2024-11-02"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Problem 1a
+
+```{r}
+set.seed(2)
+sige = 3
+siga = 4
+a = 4
+n = 20
+alpha = rnorm(a, 0, siga)
+mu = 2.5
+x = runif(a*n, 0, 10)
+b1 = 1.3
+z = matrix(0, n*a, a)
+for(i in 1:a){
+  z[((i-1)*n+1):(i*n), i] = 1
+}
+y = mu + x * b1 + z %*% alpha + rnorm(n*a, 0, sige)
+dat = data.frame(y = y,
+                group = rep(1:a, each = n) |> as.factor(),
+                x = x)
+```
+
+```{r}
+library(ggplot2)
+library(lme4)
+library(lmerTest)
+library(dplyr)
+library(faraway)
+library(RLRsim)
+library(pbkrtest)
+
+ggplot(data = dat, aes(x = x, y = y, color = group))+
+  geom_point()
+```
+
+From the plot, we can see that there's a clear distinction between each group. We can see that the group 3 tend to have the highest y value. Group 1 and 4 look pretty similar in term of the y value. 
+
+## Problem 1b
+```{r}
+options(contrasts = c("contr.sum", "contr.poly"))
+
+model <- aov(y ~ group + x, dat)
+summary(model)
+
+lm_model<-lm(y ~ group + x, dat)
+summary(lm_model)
+```
+
+From the summary of the model, we can see that both x and groups are significant. Thus, we'll reject the null hypothesis $H_0: \alpha_i = 0, \forall i$, both group and x are significant. The MSE provides the estimate of $\hat{\sigma} = 10.5$. The estimated overall mean is 1.0113543.
+
+From the linear model, we can see that all variables are significant except for the group2. 
+
+```{r}
+plot(lm_model)
+```
+
+According to the residual plot, we can see that the residuals are random and uniform, which means the model are efficient in capturing the information in the data. From the Q-Q plot, we can see that the observations are not quite normal where it is off on both sides from theoretical quantile line. 
+
+## Problem 1c
+
+```{r}
+model2<-lmer(y ~ 1 + (1|group) + x, data = dat)
+summary(model2)
+
+coef(model2)$group
+
+print(unique(z %*% alpha))
+```
+
+We see that this gives identical estimates to the ANOVA method: $\hat{\sigma}^2 = 10.54, \hat{\sigma}^2_\alpha = 16.07$, and $\hat{\mu} = 0.9679$.
+
+We can see that the coefficient of x for the random effect model is similar to the original linear model. We know the truth for group 1 is -3.5877, group 2 is 0.7394, group 3 is 6.3514, and group 4 is -4.5215. Thus, we can see that from the intercept, we can see that group 2 and group 3 is pretty close to the truth, but group 1 and 4 are off from the truth. 
+
+## Problem 1d & 1e
+
+```{r}
+anova_results_fixed<-anova(model2, ddf = "Kenward-Roger")
+anova_results_random <- rand(model2)
+
+print(anova_results_fixed)
+print(anova_results_random)
+```
+
+From the summary of ANOVA (Kenward-Roger), we can see that the fixed effect has a p-value lower than 0.05, and this means that we will reject the null hypothesis, which fixed effect is not significant. Therefore, the fixed effect is significant according to the ANOVA. In addition, we can see that the result for the random effect is also significant with a p-value lower than 0.05. This means that the random effect is also significant. Hence, the results show us that we should keep both the fixed effect and the random effect 
+
+## Problem 1f
+```{r}
+ran_intercepts <- ranef(model2)$group %>%
+  as.data.frame() %>%
+  rename(intercept = `(Intercept)`) %>%
+  mutate(group = rownames(ranef(model2)$group))
+
+ran_intercepts$intercept <- ran_intercepts$intercept + fixef(model2)[1]
+ran_intercepts$slope <- fixef(model2)["x"]
+
+lm_intercept <- coef(lm_model)[1]
+lm_slope <- coef(lm_model)[5]
+
+ggplot(dat, aes(x = x, y = y, color = as.factor(group))) +
+  geom_point() +
+  geom_abline(data = ran_intercepts, aes(intercept = intercept, slope = slope, color = as.factor(group)), linetype = "dashed") +
+  geom_abline(intercept = lm_intercept, slope = lm_slope, color = "black", linetype = "dashed", aes(linetype = "Linear Model")) +
+  labs(title = "Mixed Effects Model: Random Intercepts by Group",
+       x = "x",
+       y = "y",
+       color = "Group") +
+  theme_minimal() +
+  scale_color_discrete(name = "Group") +
+  scale_linetype_manual(values = c("Linear Model" = "dashed")) +
+  scale_linetype_manual(name = "Model Type", values = c("dashed", "solid"), labels = c("Mixed Effects (Group)", "Linear Model"))
+
+
+```
+
+We can see that the random effect model fits well with the observation with different slope between each groups. We can see that the linear model (black, dashed line) is in the middle of the observations. However, we can see that there's clear distinction between the group, so this might mean that the Random Effect model is preferred. 
+
+## Problem 2a
+
+```{r}
+data<-semicond
+
+overall_mean <- mean(data$resistance, na.rm = TRUE)
+print(overall_mean)
+
+ggplot(data, aes(x = factor(Wafer), y = resistance)) +
+  geom_point() +
+  geom_hline(yintercept = overall_mean, color = "red", linetype = "solid", size = 1) +
+  labs(title = "Resistance by Wafer",
+       x = "Wafer",
+       y = "Resistance") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+We can see that the Wafer 2 has the highest mean resistance and Wafer 3 has the lowest.
+
+## Problem 2b
+
+```{r}
+contrasts(data$ET) <- contr.sum
+contrasts(data$position) <- contr.sum
+
+model<-lm(resistance ~ ET * position, data = data)
+summary(model)
+```
+
+We can see that only ET1 and position3 are significant. We can also see that the intercept and the overall mean is the same. 
+
+## Problem 2c
+
+```{r}
+random_model<-lmer(resistance ~ 1 + ET * position + (1|ET:Wafer), data = data)
+summary(random_model)
+```
+
+We can see that $\hat{\sigma}^2 = 0.1111, \hat{\sigma}^2_\alpha = 0.1058$, and $\hat{\mu} = 6.002917$ for the model with random effect ET:Wafer.
+
+## Problem 2d
+
+```{r}
+anova_fixed<-anova(random_model, ddf = "Kenward-Roger")
+
+print(anova_fixed)
+```
+
+From the summary of ANOVA table (Kenward-Roger's method), we can see that only the variable position has a p-value lower than 0.05, which means that the variable position is significant. Therefore, we'll only keep the variable position as the fixed effect in our final model. 
+
+```{r}
+final_model<-lmer(resistance ~ 1 + position + (1|ET:Wafer), data = data)
+anova_final<-anova(final_model, ddf = "Kenward-Roger")
+print(anova_final)
+```
+
+From the test of final model, we can see that the position variable is significant, so we can conclude that the variable position is signficant to the model.
+
+## Problem 2e
+
+```{r}
+anova_random<-rand(final_model)
+print(anova_random)
+```
+
+From the ANOVA for the random effect, we can see that the random effect (1|ET:Wafer) has a p-value lower than 0.05, which means that we will reject the null hypothesis. This means that the random effect (1|ET:Wafer) is significant. Therefore, we shall keep the random effect in our model. 
+
+## Problem 3
+
+```{r}
+set.seed(123)
+mu <- 50  
+sigma2_alpha <- 2  
+sigma2 <- 5 * sigma2_alpha  
+
+num_levels <- 6
+obs_per_level <- 10
+
+alpha <- rnorm(num_levels, mean = 0, sd = sqrt(sigma2_alpha))
+
+# Simulate observations
+data <- data.frame(
+  level = rep(1:num_levels, each = obs_per_level),
+  y = mu + rep(alpha, each = obs_per_level) + rnorm(num_levels * obs_per_level, mean = 0, sd = sqrt(sigma2))
+)
+
+ggplot(data, aes(x = factor(level), y = y)) +
+  geom_boxplot() +
+  labs(title = "Boxplot of Simulated Data for One-Way ANOVA Design",
+       x = "Level",
+       y = "Response (y)") +
+  theme_minimal()
+
+```
+In this simulation, we chose the $\mu = 3, \hat{\sigma}^2 = 1, \hat{\sigma}^2_\alpha = 5$, and $\hat{\mu} = 50$. According to the box plot, we can see that the third level has the highest median response y and level 2 has the lowest median response y. From the simulation, we can clearly see that there's a difference between each leven so the random effect model is suggested. 
+
+```{r}
+lmer_model<-lmer(y ~ (1|level), data = data)
+summary(lmer_model)
+
+anova_model <- aov(y ~ factor(level), data = data)
+summary(anova_model)
+
+anova_summary<-summary(anova_model)
+
+MSA <- anova_summary[[1]]["factor(level)", "Mean Sq"]
+MSE <- anova_summary[[1]]["Residuals", "Mean Sq"]
+
+estimated_sigma2_a<-(MSA - MSE) / (obs_per_level)
+estimated_sigma2 <- MSE
+
+cat("Estimated sigma^2_alpha:", estimated_sigma2_a)
+cat("Estimated sigma^2:", estimated_sigma2)
+
+```
+
+Thus, our maximum likelihood gives us $\sigma^2_alpha = 3.392458$ and $\sigma^2 = 7.048796$.
+
+```{r}
+mle<-VarCorr(lmer_model)
+print(mle)
+```
+
+We can see that the ANOVA estimators for $\sigma^2_\alpha$ and $\sigma^2$ are similar to the the maximum likelihood estimator with $\sigma^2_{\alpha} = 1.8419^2 = 3.39259561$ and $\sigma^2 = 2.655^2 = 7.102225$. However, it's off from our true $\sigma^2_{\alpha}$ and $\sigma^2$.
+

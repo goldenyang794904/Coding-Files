@@ -1,0 +1,79 @@
+---
+title: "STAT4520 HW4"
+author: Anton Yang
+output: pdf_document
+date: "2024-10-18"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Problem 1
+
+Suppose data is generated from the exponential distribution with density
+\[f(y) = \lambda e^{-\lambda y}\].
+We can write this as exponential family:
+\[f(y|\theta, \phi) = e^{-\lambda y + \log(\lambda)}\]
+
+So, $\theta = -\lambda$, $\phi = 1$, $a(\phi) = \phi = 1$, $b(\theta) = -\log(\lambda)$, and $c(y, \phi) = 0$. 
+
+We can make the exponential distribution into Canonical Form, which we let $\eta = -\lambda$. 
+
+Therefore, $\eta = -\lambda$, $\phi = 1$, $a(\phi) = \phi = 1$, $b(\eta) = -\log(-\eta)$, and $c(y, \phi) = 0$.
+
+Thus, we can solve $E[X]$ and $Var[X]$ with $b(\theta)$.
+
+\[E[X] = b'(\theta) = \frac{-1}{\eta} = \frac{1}{\lambda}\]
+\[Var[X] = b''(\theta) = \frac{1}{\eta^2} = \frac{1}{\lambda^2}\]
+
+## Problem 2
+```{r}
+library(faraway)
+library(dplyr)
+library(mgcv)
+data<-chicago
+
+tw_model<-gam(involact ~ age + theft + log(income), family = tw(link = "log"), data = data)
+summary(tw_model)
+```
+
+According to the summary, we have a p of 1.152 and $\phi = 0.44757$.
+
+```{r}
+xgrid<-seq(1e-10, 1.25, len = 100)
+p <- 1.152
+phi <- 0.44757
+mu <- tw_model$fit[1]
+poismean<-mu^(2-p)/(phi * (2-p))
+p0<-exp(-poismean)
+
+twden<-exp(ldTweedie(xgrid, mu, p = p, phi = phi)[,1])
+data$involact[nrow(data)]
+plot(xgrid, twden*(1-p0), type = "l", xlab = "x", ylab = "Density", main = "Observation 60645 Predictions")
+dmax<-max(twden * (1-p0))
+segments(0, 0, 0, dmax, lwd =  2)
+text(0.05, dmax, paste0("p =", signif(p0, 3)))
+
+tw_model2<-gam(involact ~ age + theft + log(income) + fire + volact, family = tw(link = "log"), data = data)
+summary(tw_model2)
+
+p2 <- 1.132
+phi2 <- 0.3841
+mu2 <- tw_model2$fit[1]
+poismean2<-mu^(2-p2)/(phi * (2-p2))
+p0_2<-exp(-poismean2)
+
+twden2<-exp(ldTweedie(xgrid, mu2, p = p2, phi = phi2)[,1])
+plot(xgrid, twden2*(1-p0_2), type = "l", xlab = "x", ylab = "Density", main = "Observation 60645 Predictions Full Model")
+dmax2<-max(twden2 * (1-p0_2))
+segments(0, 0, 0, dmax2, lwd =  2)
+text(0.05, dmax2, paste0("p =", signif(p0_2, 3)))
+```
+
+The p value for the full model (0.416) is slightly higher than that of the smaller model (0.398). Additionally, the density plot shows that the full model has a higher maximum value, and its curve appears more irregular compared to the smoother curve of the smaller model
+
+
+
+
+
